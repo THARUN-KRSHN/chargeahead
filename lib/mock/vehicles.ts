@@ -1,0 +1,88 @@
+import type { EVModel } from '@/types';
+
+export const EV_MODELS: EVModel[] = [
+  {
+    id: 'tata-nexon-ev-max',
+    make: 'Tata',
+    model: 'Nexon EV Max',
+    year: 2023,
+    batteryCapacityKwh: 40.5,
+    rangKm: 437,
+    connectorTypes: ['CCS2', 'Bharat DC-001', 'Type2'],
+    imageUrl: '/images/vehicles/tata-nexon-ev.webp',
+  },
+  {
+    id: 'tata-punch-ev',
+    make: 'Tata',
+    model: 'Punch EV',
+    year: 2024,
+    batteryCapacityKwh: 35,
+    rangKm: 421,
+    connectorTypes: ['CCS2', 'Bharat DC-001', 'Type2'],
+    imageUrl: '/images/vehicles/tata-punch-ev.webp',
+  },
+  {
+    id: 'mg-zs-ev',
+    make: 'MG',
+    model: 'ZS EV',
+    year: 2023,
+    batteryCapacityKwh: 50.3,
+    rangKm: 461,
+    connectorTypes: ['CCS2', 'Type2'],
+    imageUrl: '/images/vehicles/mg-zs-ev.webp',
+  },
+  {
+    id: 'hyundai-kona-ev',
+    make: 'Hyundai',
+    model: 'Kona Electric',
+    year: 2023,
+    batteryCapacityKwh: 39.2,
+    rangKm: 452,
+    connectorTypes: ['CCS2', 'Type2'],
+    imageUrl: '/images/vehicles/hyundai-kona.webp',
+  },
+  {
+    id: 'hyundai-ioniq5',
+    make: 'Hyundai',
+    model: 'IONIQ 5',
+    year: 2024,
+    batteryCapacityKwh: 72.6,
+    rangKm: 631,
+    connectorTypes: ['CCS2', 'Type2'],
+    imageUrl: '/images/vehicles/hyundai-ioniq5.webp',
+  },
+  {
+    id: 'tesla-model-3',
+    make: 'Tesla',
+    model: 'Model 3',
+    year: 2024,
+    batteryCapacityKwh: 75,
+    rangKm: 602,
+    connectorTypes: ['CCS2', 'Type2'],
+    imageUrl: '/images/vehicles/tesla-model3.webp',
+  },
+  {
+    id: 'kia-ev6',
+    make: 'Kia',
+    model: 'EV6',
+    year: 2024,
+    batteryCapacityKwh: 77.4,
+    rangKm: 708,
+    connectorTypes: ['CCS2', 'Type2'],
+    imageUrl: '/images/vehicles/kia-ev6.webp',
+  },
+  {
+    id: 'byd-atto3',
+    make: 'BYD',
+    model: 'Atto 3',
+    year: 2024,
+    batteryCapacityKwh: 60.5,
+    rangKm: 521,
+    connectorTypes: ['CCS2', 'GB/T', 'Type2'],
+    imageUrl: '/images/vehicles/byd-atto3.webp',
+  },
+];
+
+export function getEvModelById(id: string): EVModel | undefined {
+  return EV_MODELS.find((m) => m.id === id);
+}
