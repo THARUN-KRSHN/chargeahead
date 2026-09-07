@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { ChevronLeft, Clock, Zap, CreditCard, Check, Calendar } from 'lucide-react';
 import { fetchStationById, fetchPaymentMethods, createBooking, processPayment } from '@/lib/mock/api';
@@ -27,11 +28,32 @@ export default function ReservePage() {
   const [loading, setLoading] = useState(true);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
+  const [holdRemaining, setHoldRemaining] = useState<number>(300); // 5 min countdown in seconds
+
+  // Hold countdown effect for step 2
+  useEffect(() => {
+    if (step !== 2) return;
+    const expiry = Number(sessionStorage.getItem(`hold_${id}`) || Date.now() + 300_000);
+    sessionStorage.setItem(`hold_${id}`, expiry.toString());
+
+    const updateTimer = () => {
+      const left = Math.max(0, Math.floor((expiry - Date.now()) / 1000));
+      setHoldRemaining(left);
+      if (left === 0) {
+        sessionStorage.removeItem(`hold_${id}`);
+        setStep(1);
+        toast.error('Reservation hold timed out. Please re-select your bay.');
+      }
+    };
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [step, id]);
 
   useEffect(() => {
     Promise.all([fetchStationById(id), fetchPaymentMethods()]).then(([s, pm]) => {
       setStation(s);
-      const availablePort = s.ports.find(p => p.status === 'available') ?? s.ports[0];
+      const availablePort = s.ports.find(p => p.status === 'available' && !p.isWalkUpOnly) ?? s.ports[0];
       setSelectedPort(availablePort);
       setPaymentMethods(pm);
       setSelectedPaymentId(pm.find(p => p.isDefault)?.id ?? pm[0]?.id ?? '');
@@ -53,7 +75,7 @@ export default function ReservePage() {
         paymentMethodId: selectedPaymentId,
       });
       toast.success('Booking confirmed! Check your QR code. ⚡');
-      router.push(`/app/bookings/${booking.id}`);
+      router.push(`/app/station/${id}/receipt?bookingId=${booking.id}`);
     } catch (err: any) {
       toast.error(err.message ?? 'Booking failed. Please try again.');
     } finally {
@@ -100,22 +122,34 @@ export default function ReservePage() {
                 {station.ports.filter(p => p.status !== 'offline').map((port) => (
                   <button
                     key={port.id}
-                    onClick={() => setSelectedPort(port)}
-                    disabled={port.status === 'busy' && !station.isReservable}
+                    onClick={() => !port.isWalkUpOnly && setSelectedPort(port)}
+                    disabled={port.isWalkUpOnly || (port.status === 'busy' && !station.isReservable)}
                     className={cn('w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
+                      port.isWalkUpOnly ? 'opacity-60 bg-gray-50 cursor-not-allowed border-dashed border-purple-300' :
                       selectedPort?.id === port.id ? 'border-black bg-gray-50' : 'border-gray-200 hover:border-black'
                     )}
                   >
-                    <div className={cn('w-3 h-3 rounded-full shrink-0', port.status === 'available' ? 'bg-emerald-500' : port.status === 'busy' ? 'bg-amber-500' : 'bg-red-500')} />
+                    <div className={cn('w-3 h-3 rounded-full shrink-0', port.isWalkUpOnly ? 'bg-purple-500' : port.status === 'available' ? 'bg-emerald-500' : port.status === 'busy' ? 'bg-amber-500' : 'bg-red-500')} />
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-extrabold text-black">{port.connectorType}</span>
+                        <span className="text-sm font-extrabold text-black">
+                          {port.bayLabel ? `${port.bayLabel} (${port.connectorType})` : port.connectorType}
+                        </span>
                         <span className="text-[10px] font-bold bg-gray-100 text-gray-700 px-2 py-0.5 rounded">{port.speedKw} kW</span>
-                        {port.status === 'busy' && <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded">Busy</span>}
+                        {port.isWalkUpOnly && (
+                          <span className="text-[10px] font-extrabold bg-purple-100 text-purple-700 px-2 py-0.5 rounded uppercase">
+                            Walk-Up Only
+                          </span>
+                        )}
+                        {port.status === 'busy' && !port.isWalkUpOnly && (
+                          <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded">Busy</span>
+                        )}
                       </div>
-                      <span className="text-xs text-gray-500 font-bold">₹{port.pricePerKwh}/kWh</span>
+                      <span className="text-xs text-gray-500 font-bold">
+                        {port.isWalkUpOnly ? 'Drop-in only — non-reservable bay' : `₹${port.pricePerKwh}/kWh`}
+                      </span>
                     </div>
-                    {selectedPort?.id === port.id && <Check className="w-4 h-4 text-black shrink-0" />}
+                    {!port.isWalkUpOnly && selectedPort?.id === port.id && <Check className="w-4 h-4 text-black shrink-0" />}
                   </button>
                 ))}
               </div>
@@ -184,6 +218,20 @@ export default function ReservePage() {
         ) : (
           /* Step 2: Payment */
           <>
+            {/* Hold countdown timer banner */}
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between text-amber-900">
+              <div className="flex items-center gap-2.5">
+                <Clock className="w-4 h-4 text-amber-600 animate-pulse shrink-0" />
+                <div>
+                  <div className="text-xs font-extrabold text-amber-900">Slot Held For You</div>
+                  <div className="text-[10px] text-amber-700">Complete checkout before hold expires</div>
+                </div>
+              </div>
+              <div className="text-base font-extrabold font-mono bg-white px-2.5 py-1 rounded-xl border border-amber-300 text-amber-950">
+                {Math.floor(holdRemaining / 60)}:{(holdRemaining % 60).toString().padStart(2, '0')}
+              </div>
+            </div>
+
             {/* Booking summary */}
             <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-sm space-y-3">
               <h2 className="font-extrabold text-black text-sm">Booking Summary</h2>
@@ -237,7 +285,7 @@ export default function ReservePage() {
               {bookingLoading ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
-                <>Pay ₹{estimatedCost} & Confirm</>
+                <>Pay ₹{estimatedCost}</>
               )}
             </motion.button>
           </>

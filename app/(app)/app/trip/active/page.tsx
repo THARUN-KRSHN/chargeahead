@@ -9,6 +9,7 @@ import { ChargingProgressBar } from '@/components/shared/ChargingProgressBar';
 import { useTripStore } from '@/lib/store/tripStore';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
 import { useMockLiveUpdates } from '@/hooks/useMockLiveUpdates';
+import { useGeolocation } from '@/hooks/useGeolocation';
 import { MOCK_TRIPS } from '@/lib/mock/trips';
 import { MOCK_STATIONS } from '@/lib/mock/stations';
 import { startChargingSession, stopChargingSession } from '@/lib/mock/api';
@@ -20,7 +21,8 @@ type TripPhase = 'driving' | 'arriving' | 'charging' | 'complete';
 export default function ActiveTripPage() {
   const router = useRouter();
   const { activeVehicle } = useVehicleStore();
-  const { rerouteAlert, acceptReroute, dismissReroute } = useTripStore();
+  const { rerouteAlert, acceptReroute, dismissReroute, activeRoute } = useTripStore();
+  const { location: userLocation } = useGeolocation(true);
   const [phase, setPhase] = useState<TripPhase>('driving');
   const [chargePercent, setChargePercent] = useState(activeVehicle?.currentChargePercent ?? 68);
   const [energyKwh, setEnergyKwh] = useState(0);
@@ -137,10 +139,10 @@ export default function ActiveTripPage() {
       {/* Full-screen map */}
       <MapComponent
         stations={[nextStop.station]}
-        route={route}
+        route={activeRoute ?? route}
         height="100%"
         className="absolute inset-0"
-        userLocation={{ lat: 12.9116, lng: 77.6389 }}
+        userLocation={userLocation ?? { lat: 12.9116, lng: 77.6389 }}
         selectedStationId={nextStop.stationId}
       />
 

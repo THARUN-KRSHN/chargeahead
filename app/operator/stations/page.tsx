@@ -20,9 +20,9 @@ export default function OperatorStationsPage() {
     setStationsList((prev) =>
       prev.map((s) => {
         if (s.id === id) {
-          const newStatus = s.status === 'operational' ? 'maintenance' : 'operational';
+          const newStatus = s.status === 'available' ? 'offline' : 'available';
           toast.info(`${s.name} status toggled to ${newStatus}`);
-          return { ...s, status: newStatus as any };
+          return { ...s, status: newStatus };
         }
         return s;
       }),

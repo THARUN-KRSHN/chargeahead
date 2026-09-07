@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
 import { searchPlaces } from '@/lib/mock/api';
+import type { SearchPlace } from '@/types';
 import { toast } from 'sonner';
 
 const RECENT_SEARCHES = [
@@ -21,8 +22,8 @@ export default function TripPlanSearchPage() {
   const { activeVehicle } = useVehicleStore();
   const [origin, setOrigin] = useState('Koramangala, Bengaluru');
   const [destination, setDestination] = useState('');
-  const [batteryLevel, setBatteryLevel] = useState(activeVehicle?.currentBatteryPercent ?? 75);
-  const [searchResults, setSearchResults] = useState<string[]>([]);
+  const [batteryLevel, setBatteryLevel] = useState(activeVehicle?.currentChargePercent ?? 75);
+  const [searchResults, setSearchResults] = useState<SearchPlace[]>([]);
 
   const handleDestinationChange = async (val: string) => {
     setDestination(val);
@@ -34,8 +35,8 @@ export default function TripPlanSearchPage() {
     }
   };
 
-  const handleSelectDestination = (dest: string) => {
-    setDestination(dest);
+  const handleSelectDestination = (dest: SearchPlace) => {
+    setDestination(dest.label);
     setSearchResults([]);
   };
 
@@ -73,7 +74,7 @@ export default function TripPlanSearchPage() {
           <div className="flex items-center gap-2.5">
             <Car className="w-4 h-4 text-black" />
             <span className="font-extrabold text-black">
-              {activeVehicle ? `${activeVehicle.make} ${activeVehicle.model}` : 'Tata Nexon EV Max'}
+              {activeVehicle ? `${activeVehicle.evModel.make} ${activeVehicle.evModel.model}` : 'Tata Nexon EV Max'}
             </span>
           </div>
           <Link href="/app/profile/vehicles" className="text-black font-extrabold hover:underline">
@@ -117,9 +118,12 @@ export default function TripPlanSearchPage() {
                   key={i}
                   type="button"
                   onClick={() => handleSelectDestination(item)}
-                  className="w-full text-left px-4 py-3 text-sm text-black hover:bg-gray-100 font-medium flex items-center gap-2 border-b border-gray-100 last:border-0"
+                  className="w-full text-left px-4 py-3 text-sm text-black hover:bg-gray-100 font-medium flex items-center justify-between border-b border-gray-100 last:border-0"
                 >
-                  <Search className="w-3.5 h-3.5 text-gray-400" /> {item}
+                  <span className="flex items-center gap-2">
+                    <Search className="w-3.5 h-3.5 text-gray-400" /> {item.label}
+                  </span>
+                  <span className="text-xs text-gray-400">{item.sublabel}</span>
                 </button>
               ))}
             </div>

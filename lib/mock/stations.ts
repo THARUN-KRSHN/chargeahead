@@ -12,15 +12,16 @@ export const MOCK_STATIONS: ChargingStation[] = [
     status: 'available',
     totalPorts: 8,
     availablePorts: 5,
+    walkUpBayCount: 2,
     ports: [
-      { id: 'p001-1', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'available', pricePerKwh: 14 },
-      { id: 'p001-2', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'available', pricePerKwh: 14 },
-      { id: 'p001-3', connectorType: 'CCS2', speedKw: 150, chargerSpeed: 'ultra-fast', status: 'busy', pricePerKwh: 20 },
-      { id: 'p001-4', connectorType: 'Type2', speedKw: 22, chargerSpeed: 'fast', status: 'available', pricePerKwh: 12 },
-      { id: 'p001-5', connectorType: 'Type2', speedKw: 22, chargerSpeed: 'fast', status: 'busy', pricePerKwh: 12 },
-      { id: 'p001-6', connectorType: 'CHAdeMO', speedKw: 50, chargerSpeed: 'fast', status: 'available', pricePerKwh: 14 },
-      { id: 'p001-7', connectorType: 'Bharat DC-001', speedKw: 15, chargerSpeed: 'slow', status: 'available', pricePerKwh: 10 },
-      { id: 'p001-8', connectorType: 'Bharat DC-001', speedKw: 15, chargerSpeed: 'slow', status: 'offline', pricePerKwh: 10 },
+      { id: 'p001-1', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'available', pricePerKwh: 14, bayLabel: 'Bay A1' },
+      { id: 'p001-2', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'available', pricePerKwh: 14, bayLabel: 'Bay A2' },
+      { id: 'p001-3', connectorType: 'CCS2', speedKw: 150, chargerSpeed: 'ultra-fast', status: 'busy', pricePerKwh: 20, bayLabel: 'Bay B1' },
+      { id: 'p001-4', connectorType: 'Type2', speedKw: 22, chargerSpeed: 'fast', status: 'available', pricePerKwh: 12, bayLabel: 'Bay B2' },
+      { id: 'p001-5', connectorType: 'Type2', speedKw: 22, chargerSpeed: 'fast', status: 'busy', pricePerKwh: 12, bayLabel: 'Bay C1' },
+      { id: 'p001-6', connectorType: 'CHAdeMO', speedKw: 50, chargerSpeed: 'fast', status: 'available', pricePerKwh: 14, bayLabel: 'Bay C2' },
+      { id: 'p001-7', connectorType: 'Bharat DC-001', speedKw: 15, chargerSpeed: 'slow', status: 'available', pricePerKwh: 10, bayLabel: 'Bay D1', isWalkUpOnly: true },
+      { id: 'p001-8', connectorType: 'Bharat DC-001', speedKw: 15, chargerSpeed: 'slow', status: 'offline', pricePerKwh: 10, bayLabel: 'Bay D2', isWalkUpOnly: true },
     ],
     confidenceScore: 91,
     confidenceLevel: 'high',
@@ -219,12 +220,15 @@ export const MOCK_STATIONS: ChargingStation[] = [
     status: 'busy',
     totalPorts: 8,
     availablePorts: 2,
+    walkUpBayCount: 2,
     ports: [
-      { id: 'p007-1', connectorType: 'CCS2', speedKw: 150, chargerSpeed: 'ultra-fast', status: 'busy', pricePerKwh: 20 },
-      { id: 'p007-2', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'busy', pricePerKwh: 16 },
-      { id: 'p007-3', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'available', pricePerKwh: 16 },
-      { id: 'p007-4', connectorType: 'Type2', speedKw: 22, chargerSpeed: 'fast', status: 'busy', pricePerKwh: 13 },
-      { id: 'p007-5', connectorType: 'Type2', speedKw: 22, chargerSpeed: 'fast', status: 'available', pricePerKwh: 13 },
+      { id: 'p007-1', connectorType: 'CCS2', speedKw: 150, chargerSpeed: 'ultra-fast', status: 'busy', pricePerKwh: 20, bayLabel: 'Bay A1' },
+      { id: 'p007-2', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'busy', pricePerKwh: 16, bayLabel: 'Bay A2' },
+      { id: 'p007-3', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'available', pricePerKwh: 16, bayLabel: 'Bay B1' },
+      { id: 'p007-4', connectorType: 'Type2', speedKw: 22, chargerSpeed: 'fast', status: 'busy', pricePerKwh: 13, bayLabel: 'Bay B2' },
+      { id: 'p007-5', connectorType: 'Type2', speedKw: 22, chargerSpeed: 'fast', status: 'available', pricePerKwh: 13, bayLabel: 'Bay C1' },
+      { id: 'p007-6', connectorType: 'Bharat DC-001', speedKw: 15, chargerSpeed: 'slow', status: 'available', pricePerKwh: 9, bayLabel: 'Bay D1', isWalkUpOnly: true },
+      { id: 'p007-7', connectorType: 'Bharat DC-001', speedKw: 15, chargerSpeed: 'slow', status: 'available', pricePerKwh: 9, bayLabel: 'Bay D2', isWalkUpOnly: true },
     ],
     confidenceScore: 76,
     confidenceLevel: 'medium',
@@ -459,13 +463,16 @@ export const MOCK_STATIONS: ChargingStation[] = [
     status: 'available',
     totalPorts: 10,
     availablePorts: 8,
+    walkUpBayCount: 2,
     ports: [
-      { id: 'p014-1', connectorType: 'CCS2', speedKw: 150, chargerSpeed: 'ultra-fast', status: 'available', pricePerKwh: 22 },
-      { id: 'p014-2', connectorType: 'CCS2', speedKw: 150, chargerSpeed: 'ultra-fast', status: 'available', pricePerKwh: 22 },
-      { id: 'p014-3', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'available', pricePerKwh: 16 },
-      { id: 'p014-4', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'busy', pricePerKwh: 16 },
-      { id: 'p014-5', connectorType: 'Type2', speedKw: 22, chargerSpeed: 'fast', status: 'available', pricePerKwh: 13 },
-      { id: 'p014-6', connectorType: 'Type2', speedKw: 22, chargerSpeed: 'fast', status: 'available', pricePerKwh: 13 },
+      { id: 'p014-1', connectorType: 'CCS2', speedKw: 150, chargerSpeed: 'ultra-fast', status: 'available', pricePerKwh: 22, bayLabel: 'Bay A1' },
+      { id: 'p014-2', connectorType: 'CCS2', speedKw: 150, chargerSpeed: 'ultra-fast', status: 'available', pricePerKwh: 22, bayLabel: 'Bay A2' },
+      { id: 'p014-3', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'available', pricePerKwh: 16, bayLabel: 'Bay B1' },
+      { id: 'p014-4', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'busy', pricePerKwh: 16, bayLabel: 'Bay B2' },
+      { id: 'p014-5', connectorType: 'Type2', speedKw: 22, chargerSpeed: 'fast', status: 'available', pricePerKwh: 13, bayLabel: 'Bay C1' },
+      { id: 'p014-6', connectorType: 'Type2', speedKw: 22, chargerSpeed: 'fast', status: 'available', pricePerKwh: 13, bayLabel: 'Bay C2' },
+      { id: 'p014-7', connectorType: 'Bharat DC-001', speedKw: 15, chargerSpeed: 'slow', status: 'available', pricePerKwh: 9, bayLabel: 'Bay D1', isWalkUpOnly: true },
+      { id: 'p014-8', connectorType: 'Bharat DC-001', speedKw: 15, chargerSpeed: 'slow', status: 'available', pricePerKwh: 9, bayLabel: 'Bay D2', isWalkUpOnly: true },
     ],
     confidenceScore: 90,
     confidenceLevel: 'high',
@@ -560,6 +567,7 @@ export const MOCK_STATIONS: ChargingStation[] = [
     status: 'available',
     totalPorts: 12,
     availablePorts: 9,
+    isSponsored: true,
     ports: [
       { id: 'p017-1', connectorType: 'CCS2', speedKw: 150, chargerSpeed: 'ultra-fast', status: 'available', pricePerKwh: 23 },
       { id: 'p017-2', connectorType: 'CCS2', speedKw: 50, chargerSpeed: 'fast', status: 'available', pricePerKwh: 18 },
@@ -692,10 +700,35 @@ export function getStationsByCity(city: string): ChargingStation[] {
   return MOCK_STATIONS.filter((s) => s.city.toLowerCase() === city.toLowerCase());
 }
 
-export function getNearbyStations(limit = 10): ChargingStation[] {
-  return MOCK_STATIONS.slice(0, limit).map((s, i) => ({
-    ...s,
-    distance: parseFloat((0.5 + i * 0.7).toFixed(1)),
-    etaMinutes: Math.round(2 + i * 2.5),
-  }));
+// Haversine distance in km
+export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const sin2 = Math.sin(dLat / 2) ** 2 + Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(sin2));
+}
+
+export function getNearbyStations(limitOrLocation: number | { lat: number; lng: number } = 10, limit = 20): ChargingStation[] {
+  if (typeof limitOrLocation === 'number') {
+    // Legacy: just return first N stations with fake distance
+    return MOCK_STATIONS.slice(0, limitOrLocation).map((s, i) => ({
+      ...s,
+      distance: parseFloat((0.5 + i * 0.7).toFixed(1)),
+      etaMinutes: Math.round(2 + i * 2.5),
+    }));
+  }
+  // Real: sort by Haversine from user location
+  const userLoc = limitOrLocation;
+  return MOCK_STATIONS
+    .map((s) => {
+      const dist = haversineKm(userLoc, s.coordinates);
+      return {
+        ...s,
+        distance: parseFloat(dist.toFixed(1)),
+        etaMinutes: Math.round((dist / 30) * 60), // avg 30 km/h city speed
+      };
+    })
+    .sort((a, b) => (a.distance ?? 999) - (b.distance ?? 999))
+    .slice(0, limit);
 }

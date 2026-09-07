@@ -20,7 +20,7 @@ export type StationStatus = 'available' | 'busy' | 'offline' | 'unknown';
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
 
-export type ReportType = 'broken' | 'blocked' | 'busy' | 'working' | 'payment_issue' | 'other';
+export type ReportType = 'broken' | 'blocked' | 'busy' | 'working' | 'payment_issue' | 'offline' | 'other';
 
 export type BookingStatus = 'upcoming' | 'active' | 'completed' | 'cancelled' | 'missed';
 
@@ -70,6 +70,8 @@ export interface ChargerPort {
   status: StationStatus;
   pricePerKwh: number; // in INR
   sessionFee?: number; // flat session fee in INR
+  isWalkUpOnly?: boolean; // cannot be reserved — drop-in only
+  bayLabel?: string; // e.g. "Bay A1"
 }
 
 // ---- Charging Station ----
@@ -107,6 +109,8 @@ export interface ChargingStation {
   pricePerKwh: number; // average
   fastChargeAvailable: boolean;
   ultraFastAvailable: boolean;
+  isSponsored?: boolean; // promoted placement
+  walkUpBayCount?: number; // number of walk-in-only bays
 }
 
 // ---- EV Vehicle ----
@@ -361,7 +365,7 @@ export interface SignupFormData {
   email: string;
   phone: string;
   password: string;
-  confirmPassword: string;
+  confirmPassword?: string;
 }
 
 export interface VehicleFormData {

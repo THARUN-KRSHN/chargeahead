@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { Zap, Car, Check, ArrowRight, BatteryCharging } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { MOCK_VEHICLES } from '@/lib/mock/users';
+import { EV_MODELS } from '@/lib/mock/vehicles';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
 import { toast } from 'sonner';
 
@@ -31,18 +32,17 @@ export default function OnboardingVehiclePage() {
     setLoading(true);
     await new Promise((r) => setTimeout(r, 600));
 
+    const evModel = EV_MODELS[selectedModelIndex] ?? EV_MODELS[0];
     const newVehicle = {
-      id: `v-${Date.now()}`,
+      id: `uv-${Date.now()}`,
       userId: 'user-001',
-      make: selected.make,
-      model: selected.model,
-      year: 2024,
-      batteryCapacityKwh: selected.batteryCapacityKwh,
-      maxChargingPowerKw: selected.maxChargingPowerKw,
-      connectorTypes: selected.connectorTypes as any,
+      evModelId: evModel.id,
+      evModel,
+      nickname: `${selected.make} ${selected.model}`,
       licensePlate,
       isDefault: true,
-      currentBatteryPercent,
+      currentChargePercent: currentBatteryPercent,
+      addedAt: new Date().toISOString(),
     };
 
     setVehicles([newVehicle, ...MOCK_VEHICLES]);

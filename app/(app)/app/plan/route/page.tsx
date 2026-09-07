@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ArrowLeft, MapPin, Navigation, Zap, ShieldCheck, Clock, BatteryCharging, Play, ChevronRight } from 'lucide-react';
@@ -8,6 +9,8 @@ import { ConfidenceScore } from '@/components/shared/ConfidenceScore';
 import { MapComponent } from '@/components/shared/MapComponent';
 import { MOCK_STATIONS } from '@/lib/mock/stations';
 import { useTripStore } from '@/lib/store/tripStore';
+import { fetchRouteOSRM, geocodePlace } from '@/lib/mock/api';
+import type { LatLng } from '@/types';
 import { toast } from 'sonner';
 
 export default function RouteResultPage() {
@@ -21,6 +24,23 @@ export default function RouteResultPage() {
 
   const primaryStop = MOCK_STATIONS[0];
   const backupStop = MOCK_STATIONS[2];
+
+  const [routePolyline, setRoutePolyline] = useState<LatLng[]>([]);
+  const [routeDistanceKm, setRouteDistanceKm] = useState<number>(142);
+  const [routeDurationMinutes, setRouteDurationMinutes] = useState<number>(165);
+
+  const originCoords: LatLng = { lat: 12.9352, lng: 77.6245 };
+  const destCoords: LatLng = { lat: 12.3052, lng: 76.6552 };
+
+  useEffect(() => {
+    fetchRouteOSRM(originCoords, destCoords).then((res) => {
+      if (res.polyline && res.polyline.length > 0) {
+        setRoutePolyline(res.polyline);
+        if (res.distanceKm > 0) setRouteDistanceKm(res.distanceKm);
+        if (res.durationMinutes > 0) setRouteDurationMinutes(res.durationMinutes + 25); // includes charging
+      }
+    });
+  }, [origin, destination]);
 
   const handleStartTrip = () => {
     const newTrip = {
@@ -69,10 +89,11 @@ export default function RouteResultPage() {
         {/* Map Preview */}
         <div className="h-64 rounded-2xl overflow-hidden border border-gray-200 relative">
           <MapComponent
-            stations={[primaryStop, backupStop]}
+            stations={[MOCK_STATIONS[0], MOCK_STATIONS[2]]}
             center={[12.7, 77.2]}
             zoom={9}
-            selectedStationId={primaryStop.id}
+            selectedStationId={MOCK_STATIONS[0].id}
+            route={routePolyline}
           />
         </div>
 
@@ -80,11 +101,13 @@ export default function RouteResultPage() {
         <div className="grid grid-cols-3 gap-3">
           <div className="glass-card rounded-xl p-4 text-center border-gray-200">
             <div className="text-[10px] text-gray-500 uppercase font-bold">Total Distance</div>
-            <div className="text-xl font-extrabold text-black font-mono mt-0.5">142 km</div>
+            <div className="text-xl font-extrabold text-black font-mono mt-0.5">{routeDistanceKm} km</div>
           </div>
           <div className="glass-card rounded-xl p-4 text-center border-gray-200">
             <div className="text-[10px] text-gray-500 uppercase font-bold">Est. Total Time</div>
-            <div className="text-xl font-extrabold text-black font-mono mt-0.5">2h 45m</div>
+            <div className="text-xl font-extrabold text-black font-mono mt-0.5">
+              {Math.floor(routeDurationMinutes / 60)}h {routeDurationMinutes % 60}m
+            </div>
             <div className="text-[9px] text-gray-500 font-medium">Includes 25m charging</div>
           </div>
           <div className="glass-card rounded-xl p-4 text-center border-gray-200">

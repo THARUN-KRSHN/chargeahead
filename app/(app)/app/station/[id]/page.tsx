@@ -8,7 +8,7 @@ import {
   MapPin, Clock, Star, Zap, Wifi, Coffee, ShoppingBag, UtensilsCrossed, Bath,
   ParkingSquare, AlertTriangle, ChevronLeft, CheckCircle2, XCircle, Flag, Share2
 } from 'lucide-react';
-import { fetchStationById, fetchStationReports, submitReport } from '@/lib/mock/api';
+import { fetchStationById, fetchStationReports, submitReport, recalcConfidenceScore } from '@/lib/mock/api';
 import { ConfidenceScore, ConfidenceBreakdown } from '@/components/shared/ConfidenceScore';
 import { BottomSheet } from '@/components/shared/BottomSheet';
 import type { ChargingStation, CommunityReport, ReportType } from '@/types';
@@ -58,11 +58,16 @@ export default function StationDetailPage() {
     setSubmittingReport(true);
     try {
       const report = await submitReport(id, { type: selectedReportType, description: reportDescription });
-      setReports((prev) => [report, ...prev]);
+      const updatedReports = [report, ...reports];
+      setReports(updatedReports);
+      if (station) {
+        const newScore = recalcConfidenceScore(station.confidenceScore, updatedReports);
+        setStation({ ...station, confidenceScore: newScore });
+      }
       setReportSheetOpen(false);
       setSelectedReportType(null);
       setReportDescription('');
-      toast.success('Report submitted — thank you for helping the community!');
+      toast.success('Report submitted — station reliability badge updated!');
     } catch {
       toast.error('Failed to submit report. Please try again.');
     } finally {

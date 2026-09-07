@@ -12,22 +12,22 @@ interface StationCardProps {
   compact?: boolean;
 }
 
-const statusConfig = {
-  available: { label: 'Available', className: 'status-available' },
-  busy: { label: 'Busy', className: 'status-busy' },
-  offline: { label: 'Offline', className: 'status-offline' },
-  unknown: { label: 'Unknown', className: 'status-unknown' },
+const statusConfig: Record<string, { label: string; className: string; borderColor: string }> = {
+  available: { label: 'Available', className: 'status-available', borderColor: '#22C55E' },
+  busy:      { label: 'Busy',      className: 'status-busy',      borderColor: '#F59E0B' },
+  offline:   { label: 'Offline',   className: 'status-offline',   borderColor: '#6B7280' },
+  unknown:   { label: 'Unknown',   className: 'status-unknown',   borderColor: '#94A3B8' },
 };
 
-const confidenceColor = {
-  high: 'text-emerald-600',
+const confidenceColor: Record<string, string> = {
+  high:   'text-emerald-600',
   medium: 'text-amber-600',
-  low: 'text-red-600',
+  low:    'text-red-600',
 };
 
 export function StationCard({ station, className, compact = false }: StationCardProps) {
-  const status = statusConfig[station.status];
-  const confColor = confidenceColor[station.confidenceLevel];
+  const status = statusConfig[station.status] ?? statusConfig.unknown;
+  const confColor = confidenceColor[station.confidenceLevel] ?? 'text-gray-600';
 
   return (
     <motion.div
@@ -38,12 +38,21 @@ export function StationCard({ station, className, compact = false }: StationCard
       <Link href={`/app/station/${station.id}`}>
         <div
           className={cn(
-            'glass-card rounded-2xl p-4 cursor-pointer transition-all duration-200 hover:border-black/30 hover:shadow-md active:scale-98',
+            'glass-card rounded-2xl p-4 cursor-pointer transition-all duration-200 hover:shadow-md active:scale-98 relative overflow-hidden',
             className,
           )}
+          style={{ borderLeft: `4px solid ${status.borderColor}` }}
         >
+          {/* Sponsored badge */}
+          {station.isSponsored && (
+            <div className="absolute top-3 right-3 flex items-center gap-1 bg-amber-50 border border-amber-300 rounded-full px-2 py-0.5">
+              <Star className="w-2.5 h-2.5 text-amber-500 fill-amber-500" />
+              <span className="text-[9px] font-bold text-amber-700 uppercase tracking-wide">Sponsored</span>
+            </div>
+          )}
+
           {/* Header row */}
-          <div className="flex items-start justify-between gap-2 mb-3">
+          <div className={cn('flex items-start gap-2 mb-3', station.isSponsored ? 'pr-20' : '')}>
             <div className="flex-1 min-w-0">
               <h3 className="font-extrabold text-black text-base leading-tight truncate">{station.name}</h3>
               <div className="flex items-center gap-1 mt-0.5">

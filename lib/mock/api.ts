@@ -92,9 +92,9 @@ export async function mockResetPassword(token: string, newPassword: string): Pro
 
 // ---- Stations ----
 
-export async function fetchNearbyStations(limit = 12): Promise<ChargingStation[]> {
-  await mockDelay(400, 800);
-  return getNearbyStations(limit);
+export async function fetchNearbyStations(userLocationOrLimit: { lat: number; lng: number } | number = 16): Promise<ChargingStation[]> {
+  await mockDelay(300, 700);
+  return getNearbyStations(userLocationOrLimit as any);
 }
 
 export async function fetchStationById(id: string): Promise<ChargingStation> {
@@ -151,6 +151,75 @@ export async function searchPlaces(query: string): Promise<SearchPlace[]> {
   return [...stationResults, ...placeResults].slice(0, 8);
 }
 
+// ---- Real Geocoding (Nominatim) ----
+// API docs: https://nominatim.openstreetmap.org/
+// Free, no API key. Rate limit: 1 req/second. Must set User-Agent header.
+
+export async function geocodePlace(query: string): Promise<{ lat: number; lng: number; displayName: string }[]> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=in&addressdetails=1`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'ChargeAhead/1.0 (chargeahead.in)' } });
+    if (!res.ok) throw new Error('Nominatim error');
+    const data = await res.json();
+    return data.map((item: any) => ({
+      lat: parseFloat(item.lat),
+      lng: parseFloat(item.lon),
+      displayName: item.display_name,
+    }));
+  } catch {
+    return []; // fail gracefully
+  }
+}
+
+export async function reverseGeocode(lat: number, lng: number): Promise<string> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'ChargeAhead/1.0 (chargeahead.in)' } });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    // Return a short human-readable address
+    const addr = data.address;
+    const parts = [addr?.suburb || addr?.neighbourhood, addr?.city || addr?.town || addr?.village, addr?.state].filter(Boolean);
+    return parts.join(', ') || data.display_name;
+  } catch {
+    return 'Current Location';
+  }
+}
+
+// ---- Real Road Routing (OSRM) ----
+// API docs: http://project-osrm.org/docs/v5.22.0/api/
+// Free public instance at router.project-osrm.org — no API key needed.
+
+export async function fetchRouteOSRM(
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+): Promise<{ polyline: { lat: number; lng: number }[]; distanceKm: number; durationMinutes: number }> {
+  try {
+    const coords = `${origin.lng},${origin.lat};${destination.lng},${destination.lat}`;
+    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?geometries=geojson&overview=full`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('OSRM error');
+    const data = await res.json();
+    const route = data.routes?.[0];
+    if (!route) throw new Error('No route found');
+    const polyline: { lat: number; lng: number }[] = route.geometry.coordinates.map(
+      ([lng, lat]: [number, number]) => ({ lat, lng }),
+    );
+    return {
+      polyline,
+      distanceKm: parseFloat((route.distance / 1000).toFixed(1)),
+      durationMinutes: Math.round(route.duration / 60),
+    };
+  } catch {
+    // Fallback: straight line
+    return {
+      polyline: [origin, destination],
+      distanceKm: 0,
+      durationMinutes: 0,
+    };
+  }
+}
+
 // ---- Vehicles ----
 
 export async function fetchUserVehicles(): Promise<UserVehicle[]> {
@@ -185,31 +254,36 @@ export async function removeVehicle(vehicleId: string): Promise<void> {
   await mockDelay(300, 600);
 }
 
-// ---- Bookings ----
+// ---- Bookings (localStorage backed + mock fallback) ----
 
-export async function fetchUserBookings(): Promise<Booking[]> {
-  await mockDelay(400, 700);
-  return MOCK_BOOKINGS;
+// ---- localStorage helpers ----
+
+const LS_BOOKINGS = 'ca_bookings_v1';
+const LS_REPORTS = 'ca_reports_v1';
+
+function lsGet<T>(key: string): T[] {
+  if (typeof window === 'undefined') return [];
+  try { return JSON.parse(localStorage.getItem(key) ?? '[]'); } catch { return []; }
 }
 
-export async function fetchBookingById(id: string): Promise<Booking> {
-  await mockDelay(300, 600);
-  const booking = getBookingById(id);
-  if (!booking) throw new Error(`Booking ${id} not found`);
-  return booking;
+function lsAppend<T>(key: string, item: T): void {
+  if (typeof window === 'undefined') return;
+  const arr = lsGet<T>(key);
+  arr.unshift(item as T); // newest first
+  localStorage.setItem(key, JSON.stringify(arr.slice(0, 100))); // cap at 100 items
 }
 
 export async function createBooking(data: BookingFormData): Promise<Booking> {
   await mockDelay(600, 1200);
   if (randomFail(0.05)) throw new Error('Booking failed. Please try again.');
   const station = getStationById(data.portId.split('-')[0]) ?? MOCK_STATIONS[0];
-  return {
+  const booking: Booking = {
     id: `bk-${Date.now()}`,
     userId: 'user-001',
     stationId: station.id,
     station,
     portId: data.portId,
-    port: station.ports[0],
+    port: station.ports.find(p => p.id === data.portId) ?? station.ports[0],
     status: 'upcoming',
     startTime: data.startTime,
     endTime: data.endTime,
@@ -221,10 +295,30 @@ export async function createBooking(data: BookingFormData): Promise<Booking> {
     vehicleId: data.vehicleId,
     vehicle: MOCK_VEHICLES[0],
   };
+  lsAppend(LS_BOOKINGS, booking);
+  return booking;
 }
 
 export async function cancelBooking(bookingId: string): Promise<void> {
   await mockDelay(400, 800);
+}
+
+export async function fetchUserBookings(): Promise<Booking[]> {
+  await mockDelay(400, 700);
+  const localBookings = lsGet<Booking>(LS_BOOKINGS);
+  // Merge, dedup by id
+  const all = [...localBookings, ...MOCK_BOOKINGS];
+  const seen = new Set<string>();
+  return all.filter(b => { if (seen.has(b.id)) return false; seen.add(b.id); return true; });
+}
+
+export async function fetchBookingById(id: string): Promise<Booking> {
+  await mockDelay(300, 600);
+  const fromLs = lsGet<Booking>(LS_BOOKINGS).find(b => b.id === id);
+  if (fromLs) return fromLs;
+  const booking = getBookingById(id);
+  if (!booking) throw new Error(`Booking ${id} not found`);
+  return booking;
 }
 
 // ---- Trips ----
@@ -293,12 +387,16 @@ export async function processPayment(amountInr: number, paymentMethodId: string)
 
 export async function fetchStationReports(stationId: string): Promise<CommunityReport[]> {
   await mockDelay(300, 600);
-  return getReportsByStation(stationId);
+  const localReports = lsGet<CommunityReport>(LS_REPORTS).filter(r => r.stationId === stationId);
+  const mockReports = getReportsByStation(stationId);
+  const all = [...localReports, ...mockReports];
+  const seen = new Set<string>();
+  return all.filter(r => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
 }
 
 export async function submitReport(stationId: string, data: ReportFormData): Promise<CommunityReport> {
   await mockDelay(500, 900);
-  return {
+  const report: CommunityReport = {
     id: `rpt-${Date.now()}`,
     stationId,
     userId: 'user-001',
@@ -311,6 +409,28 @@ export async function submitReport(stationId: string, data: ReportFormData): Pro
     upvotes: 0,
     createdAt: new Date().toISOString(),
   };
+  lsAppend(LS_REPORTS, report);
+  return report;
+}
+
+/**
+ * Recalculates a station's confidence score from community reports.
+ * working → +3, busy/payment_issue → −3, broken/blocked → −5, other → −2
+ * Score is clamped 0–100.
+ */
+export function recalcConfidenceScore(baseScore: number, reports: CommunityReport[]): number {
+  const recentReports = reports.slice(0, 10); // only last 10 reports matter
+  const delta = recentReports.reduce((acc, r) => {
+    switch (r.type) {
+      case 'working': return acc + 3;
+      case 'busy': return acc - 3;
+      case 'payment_issue': return acc - 3;
+      case 'broken': return acc - 5;
+      case 'blocked': return acc - 5;
+      default: return acc - 2;
+    }
+  }, 0);
+  return Math.max(0, Math.min(100, baseScore + delta));
 }
 
 // ---- Notifications ----

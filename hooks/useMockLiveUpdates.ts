@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useTripStore } from '@/lib/store/tripStore';
 import { useNotificationStore } from '@/lib/store/notificationStore';
 import { MOCK_STATIONS } from '@/lib/mock/stations';
+import { haversineKm } from '@/lib/mock/stations';
 
 interface StationUpdates {
   [stationId: string]: {
@@ -41,45 +42,68 @@ export function getLiveStationData(stationId: string) {
   return liveStationUpdates[stationId] ?? null;
 }
 
+/**
+ * Finds the nearest available station (by Haversine) that isn't the congested one.
+ */
+function findNearestAvailableAlternative(
+  origin: { lat: number; lng: number },
+  excludeId: string,
+): typeof MOCK_STATIONS[0] | null {
+  const available = MOCK_STATIONS
+    .filter((s) => s.id !== excludeId && s.status !== 'offline')
+    .filter((s) => (liveStationUpdates[s.id]?.availablePorts ?? s.availablePorts) > 0)
+    .map((s) => ({ ...s, dist: haversineKm(origin, s.coordinates) }))
+    .sort((a, b) => a.dist - b.dist);
+  return available[0] ?? null;
+}
+
 export function useMockLiveUpdates(options: { enableReroute?: boolean } = {}) {
-  const { triggerReroute, rerouteAlert } = useTripStore();
+  const { triggerReroute, rerouteAlert, rerouteFired, activeTrip } = useTripStore();
   const { addNotification } = useNotificationStore();
-  const rerouteFiredRef = useRef(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     // Nudge station data every 8 seconds
-    const stationInterval = setInterval(nudgeStations, 8000);
+    const stationInterval = setInterval(() => {
+      nudgeStations();
 
-    // Scripted reroute event: fires once ~20 seconds after active trip
-    if (options.enableReroute && !rerouteFiredRef.current) {
-      const rerouteTimer = setTimeout(() => {
-        if (rerouteFiredRef.current) return;
-        rerouteFiredRef.current = true;
-        triggerReroute(
-          '⚠ Station ahead is now 90% busy — ChargeAhead found a better stop (+6 km, saves 18 min queue)',
-          MOCK_STATIONS[2], // Ather Grid MG Road as alternative
-        );
+      // Algorithm-driven reroute: only fires when an active trip's next stop becomes congested
+      if (!options.enableReroute || rerouteFired || !activeTrip) return;
+
+      const stops = (activeTrip as any).stops ?? [];
+      const nextStop = stops[0];
+      if (!nextStop) return;
+
+      const stationId = nextStop.stationId ?? nextStop.station?.id;
+      if (!stationId) return;
+
+      const liveData = liveStationUpdates[stationId];
+      if (!liveData) return;
+
+      // Trigger reroute when next stop is fully busy AND predicted queue > 15 minutes
+      if (liveData.availablePorts === 0 && liveData.predictedQueueMinutes > 15) {
+        const originCoords = (activeTrip as any).origin ?? { lat: 12.9716, lng: 77.5946 };
+        const alt = findNearestAvailableAlternative(originCoords, stationId);
+        if (!alt) return;
+
+        const savedMinutes = liveData.predictedQueueMinutes;
+        const message = `${alt.name} is available nearby — avoids ${savedMinutes} min queue at original stop`;
+
+        triggerReroute(message, alt);
         addNotification({
           id: `notif-reroute-${Date.now()}`,
           userId: 'user-001',
           type: 'reroute_alert',
-          title: 'Route updated',
-          body: 'Alternative charging stop found — Ather Grid MG Road. +6 km but saves 18 min queue.',
+          title: 'Smarter Route Found',
+          body: message,
           actionUrl: '/app/trip/active',
           isRead: false,
           createdAt: new Date().toISOString(),
         });
-      }, 22000); // fire after 22 seconds
-
-      return () => {
-        clearInterval(stationInterval);
-        clearTimeout(rerouteTimer);
-      };
-    }
+      }
+    }, 8000);
 
     return () => clearInterval(stationInterval);
-  }, [options.enableReroute, triggerReroute, addNotification]);
+  }, [options.enableReroute, rerouteFired, activeTrip, triggerReroute, addNotification]);
 }
 
 // Subscribe to live station updates from any component

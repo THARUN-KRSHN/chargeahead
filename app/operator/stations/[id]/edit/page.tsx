@@ -17,7 +17,7 @@ export default function EditStationPage({ params }: { params: Promise<{ id: stri
     notFound();
   }
 
-  const [price, setPrice] = useState((station.pricePerKwhInr ?? station.pricePerKwh ?? 18).toString());
+  const [price, setPrice] = useState((station.pricePerKwh ?? 18).toString());
   const [status, setStatus] = useState(station.status);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);

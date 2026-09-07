@@ -8,7 +8,7 @@ import { useNotificationStore } from '@/lib/store/notificationStore';
 import { formatRelativeTime } from '@/lib/utils';
 
 export default function NotificationsCenterPage() {
-  const { notifications, markAsRead, markAllAsRead } = useNotificationStore();
+  const { notifications, markRead, markAllRead } = useNotificationStore();
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
 
   const filteredNotifs = notifications.filter((n) => {
@@ -28,7 +28,7 @@ export default function NotificationsCenterPage() {
         </div>
 
         <button
-          onClick={markAllAsRead}
+          onClick={markAllRead}
           className="text-xs text-black font-extrabold hover:underline flex items-center gap-1"
         >
           <Check className="w-3.5 h-3.5" /> Mark all read
@@ -69,7 +69,7 @@ export default function NotificationsCenterPage() {
                 key={n.id}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                onClick={() => markAsRead(n.id)}
+                onClick={() => markRead(n.id)}
                 className={`bg-white rounded-2xl p-4 transition-all cursor-pointer border shadow-sm ${
                   !n.isRead ? 'border-black bg-gray-50' : 'border-gray-200'
                 }`}
@@ -77,10 +77,10 @@ export default function NotificationsCenterPage() {
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-xl bg-gray-100 text-black flex items-center justify-center shrink-0 mt-0.5 font-bold">
                     {n.type === 'reroute_alert' && <Navigation className="w-4 h-4 text-amber-600" />}
-                    {n.type === 'charging_completed' && <CheckCircle className="w-4 h-4 text-emerald-600" />}
+                    {n.type === 'charging_complete' && <CheckCircle className="w-4 h-4 text-emerald-600" />}
                     {n.type === 'station_offline' && <AlertTriangle className="w-4 h-4 text-red-600" />}
                     {n.type === 'reservation_reminder' && <Zap className="w-4 h-4 text-black" />}
-                    {n.type === 'payment_receipt' && <Zap className="w-4 h-4 text-black" />}
+                    {n.type === 'payment_success' && <Zap className="w-4 h-4 text-black" />}
                   </div>
 
                   <div className="flex-1 min-w-0">

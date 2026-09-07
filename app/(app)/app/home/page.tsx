@@ -7,9 +7,11 @@ import Link from 'next/link';
 import { MapComponent } from '@/components/shared/MapComponent';
 import { StationCard } from '@/components/shared/StationCard';
 import { BottomSheet } from '@/components/shared/BottomSheet';
+import { RangeEstimator } from '@/components/shared/RangeEstimator';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
 import { fetchNearbyStations } from '@/lib/mock/api';
 import { useMockLiveUpdates } from '@/hooks/useMockLiveUpdates';
+import { useGeolocation } from '@/hooks/useGeolocation';
 import type { ChargingStation, ConnectorType } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -17,6 +19,7 @@ const CONNECTOR_FILTERS: ConnectorType[] = ['CCS2', 'Type2', 'CHAdeMO', 'Bharat 
 
 export default function HomePage() {
   const { activeVehicle } = useVehicleStore();
+  const { location: userLocation } = useGeolocation();
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [stations, setStations] = useState<ChargingStation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,10 +34,10 @@ export default function HomePage() {
   useMockLiveUpdates();
 
   useEffect(() => {
-    fetchNearbyStations(16)
+    fetchNearbyStations(userLocation ?? 16)
       .then(setStations)
       .finally(() => setLoading(false));
-  }, []);
+  }, [userLocation]);
 
   const filteredStations = stations.filter((s) => {
     if (searchQuery && !s.name.toLowerCase().includes(searchQuery.toLowerCase()) && !s.city.toLowerCase().includes(searchQuery.toLowerCase())) return false;
@@ -119,7 +122,7 @@ export default function HomePage() {
               className="w-full h-full"
               onStationClick={handleStationMapClick}
               selectedStationId={selectedStation?.id}
-              userLocation={{ lat: 12.9116, lng: 77.6389 }}
+              userLocation={userLocation ?? { lat: 12.9716, lng: 77.5946 }}
             />
 
             {/* Bottom station list peek */}
@@ -153,29 +156,34 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 overflow-y-auto pt-32 pb-4 px-4 bg-white"
+            className="absolute inset-0 overflow-y-auto pt-32 pb-6 px-4 bg-white space-y-4"
           >
-            {loading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="skeleton rounded-2xl h-40" />
-                ))}
-              </div>
-            ) : filteredStations.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center">
-                <Zap className="w-12 h-12 text-gray-300 mb-4" />
-                <p className="text-gray-600 font-bold">No stations match your filters</p>
-                <button onClick={() => { setActiveConnectors([]); setShowFastOnly(false); setMinReliability(0); }} className="mt-3 text-black font-extrabold text-sm hover:underline">
-                  Clear filters
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3 max-w-3xl mx-auto">
-                {filteredStations.map((s) => (
-                  <StationCard key={s.id} station={s} />
-                ))}
-              </div>
-            )}
+            <div className="max-w-3xl mx-auto space-y-4">
+              {/* Range Estimator widget */}
+              <RangeEstimator nearbyStationsCount={filteredStations.length} />
+
+              {loading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="skeleton rounded-2xl h-40" />
+                  ))}
+                </div>
+              ) : filteredStations.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-center">
+                  <Zap className="w-12 h-12 text-gray-300 mb-4" />
+                  <p className="text-gray-600 font-bold">No stations match your filters</p>
+                  <button onClick={() => { setActiveConnectors([]); setShowFastOnly(false); setMinReliability(0); }} className="mt-3 text-black font-extrabold text-sm hover:underline">
+                    Clear filters
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredStations.map((s) => (
+                    <StationCard key={s.id} station={s} />
+                  ))}
+                </div>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
