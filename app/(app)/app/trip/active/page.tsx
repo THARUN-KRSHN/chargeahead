@@ -104,36 +104,36 @@ export default function ActiveTripPage() {
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="min-h-dvh flex flex-col items-center justify-center px-6 text-center bg-hero-gradient"
+        className="min-h-dvh flex flex-col items-center justify-center px-6 text-center bg-white text-black"
       >
         <motion.div animate={{ scale: [0.8, 1.1, 1] }} transition={{ duration: 0.6 }}>
-          <div className="w-24 h-24 rounded-full bg-mint-400/15 flex items-center justify-center mb-6 mx-auto">
-            <CheckCircle2 className="w-12 h-12 text-mint-400" />
+          <div className="w-24 h-24 rounded-full bg-emerald-100 flex items-center justify-center mb-6 mx-auto">
+            <CheckCircle2 className="w-12 h-12 text-emerald-600" />
           </div>
         </motion.div>
-        <h1 className="text-3xl font-bold text-white mb-2">Trip Complete!</h1>
-        <p className="text-white/60 mb-8">Heading to Mysore Palace</p>
+        <h1 className="text-3xl font-extrabold text-black mb-2">Trip Complete!</h1>
+        <p className="text-gray-500 font-bold mb-8">Heading to Mysore Palace</p>
         <div className="grid grid-cols-3 gap-4 w-full max-w-sm mb-8">
-          <div className="glass-card rounded-2xl p-4 text-center">
-            <div className="text-2xl font-bold text-white">{trip.totalDistanceKm}km</div>
-            <div className="text-[10px] text-white/40 mt-1">Distance</div>
+          <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-center">
+            <div className="text-2xl font-extrabold text-black">{trip.totalDistanceKm}km</div>
+            <div className="text-[10px] text-gray-500 font-bold mt-1">Distance</div>
           </div>
-          <div className="glass-card rounded-2xl p-4 text-center">
-            <div className="text-2xl font-bold text-mint-400">₹{Math.round(costAccrued + 0)}</div>
-            <div className="text-[10px] text-white/40 mt-1">Charged</div>
+          <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-center">
+            <div className="text-2xl font-extrabold text-black">₹{Math.round(costAccrued + 0)}</div>
+            <div className="text-[10px] text-gray-500 font-bold mt-1">Charged</div>
           </div>
-          <div className="glass-card rounded-2xl p-4 text-center">
-            <div className="text-2xl font-bold text-teal-300">18m</div>
-            <div className="text-[10px] text-white/40 mt-1">Time saved</div>
+          <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-center">
+            <div className="text-2xl font-extrabold text-emerald-600">18m</div>
+            <div className="text-[10px] text-gray-500 font-bold mt-1">Time saved</div>
           </div>
         </div>
-        <p className="text-sm text-mint-400 font-semibold">ChargeAhead predicted congestion & saved you 18 minutes of waiting.</p>
+        <p className="text-sm text-emerald-700 font-extrabold">ChargeAhead predicted congestion & saved you 18 minutes of waiting.</p>
       </motion.div>
     );
   }
 
   return (
-    <div className="h-dvh flex flex-col overflow-hidden relative">
+    <div className="h-dvh flex flex-col overflow-hidden relative bg-white text-black">
       {/* Full-screen map */}
       <MapComponent
         stations={[nextStop.station]}
@@ -146,23 +146,23 @@ export default function ActiveTripPage() {
 
       {/* Top overlay */}
       <div className="absolute top-4 left-4 right-4 z-20">
-        <div className="glass-card rounded-2xl px-4 py-3 flex items-center gap-3">
-          <div className={cn('w-2.5 h-2.5 rounded-full animate-pulse', phase === 'driving' ? 'bg-mint-400' : phase === 'charging' ? 'bg-amber-400' : 'bg-teal-300')} />
+        <div className="bg-white/95 backdrop-blur-md border border-gray-200 rounded-2xl px-4 py-3 shadow-md flex items-center gap-3">
+          <div className={cn('w-2.5 h-2.5 rounded-full animate-pulse', phase === 'driving' ? 'bg-emerald-500' : phase === 'charging' ? 'bg-amber-500' : 'bg-black')} />
           <div className="flex-1">
-            <p className="text-sm font-semibold text-white">
+            <p className="text-sm font-extrabold text-black">
               {phase === 'driving' && '→ Mysore Palace via Koramangala Hub'}
               {phase === 'arriving' && 'Arriving at charging stop…'}
               {phase === 'charging' && 'Charging at Nexcharge Koramangala'}
               {phase === 'complete' && 'Charging complete — continue journey'}
             </p>
-            <p className="text-xs text-white/50">
+            <p className="text-xs text-gray-500 font-bold">
               {phase === 'driving' && `Next stop: ${nextStop.station.name} · ${nextStop.arrivalBatteryPercent}% on arrival`}
               {phase === 'arriving' && 'Pull into bay 3 • Show QR code'}
               {phase === 'charging' && `${timeRemaining} min remaining`}
               {phase === 'complete' && 'Ready to continue to Mysore'}
             </p>
           </div>
-          <Battery className={cn('w-5 h-5 shrink-0', chargePercent > 50 ? 'text-mint-400' : chargePercent > 20 ? 'text-amber-400' : 'text-red-400')} />
+          <Battery className={cn('w-5 h-5 shrink-0', chargePercent > 50 ? 'text-emerald-600' : chargePercent > 20 ? 'text-amber-500' : 'text-red-500')} />
         </div>
       </div>
 
@@ -172,41 +172,41 @@ export default function ActiveTripPage() {
           initial={{ y: 100 }}
           animate={{ y: 0 }}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-          className="bg-navy-900 rounded-t-3xl border-t border-surface-border shadow-sheet px-5 pt-3 pb-safe"
+          className="bg-white rounded-t-3xl border-t border-gray-200 shadow-2xl px-5 pt-3 pb-safe"
         >
-          <div className="sheet-handle" />
+          <div className="sheet-handle bg-gray-300" />
 
           {phase === 'driving' && (
             <div className="pb-4">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <p className="text-xs text-white/50">Next stop</p>
-                  <p className="font-bold text-white">{nextStop.station.name}</p>
+                  <p className="text-xs text-gray-500 font-bold">Next stop</p>
+                  <p className="font-extrabold text-black text-base">{nextStop.station.name}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <Clock className="w-3 h-3 text-white/40" />
-                    <span className="text-xs text-white/50">~12 min · {nextStop.arrivalBatteryPercent}% on arrival</span>
+                    <Clock className="w-3 h-3 text-gray-400" />
+                    <span className="text-xs text-gray-600 font-bold">~12 min · {nextStop.arrivalBatteryPercent}% on arrival</span>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-white/50">Battery</p>
-                  <p className="text-2xl font-bold text-mint-400">{Math.round(chargePercent)}%</p>
+                  <p className="text-xs text-gray-500 font-bold">Battery</p>
+                  <p className="text-2xl font-extrabold text-emerald-600">{Math.round(chargePercent)}%</p>
                 </div>
               </div>
-              <div className="charge-bar mb-4">
-                <div className="charge-bar-fill" style={{ width: `${chargePercent}%` }} />
+              <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden mb-4">
+                <div className="h-full bg-black rounded-full transition-all" style={{ width: `${chargePercent}%` }} />
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="glass-card rounded-xl p-2.5">
-                  <div className="text-sm font-bold text-white">151 km</div>
-                  <div className="text-[10px] text-white/40">total trip</div>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5">
+                  <div className="text-sm font-extrabold text-black">151 km</div>
+                  <div className="text-[10px] text-gray-500 font-bold">total trip</div>
                 </div>
-                <div className="glass-card rounded-xl p-2.5">
-                  <div className="text-sm font-bold text-white">{trip.estimatedCostInr ? `₹${trip.estimatedCostInr}` : '₹285'}</div>
-                  <div className="text-[10px] text-white/40">est. cost</div>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5">
+                  <div className="text-sm font-extrabold text-black">{trip.estimatedCostInr ? `₹${trip.estimatedCostInr}` : '₹285'}</div>
+                  <div className="text-[10px] text-gray-500 font-bold">est. cost</div>
                 </div>
-                <div className="glass-card rounded-xl p-2.5">
-                  <div className="text-sm font-bold text-teal-300">18m saved</div>
-                  <div className="text-[10px] text-white/40">vs. no plan</div>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5">
+                  <div className="text-sm font-extrabold text-emerald-600">18m saved</div>
+                  <div className="text-[10px] text-gray-500 font-bold">vs. no plan</div>
                 </div>
               </div>
             </div>
@@ -214,19 +214,19 @@ export default function ActiveTripPage() {
 
           {phase === 'arriving' && (
             <div className="pb-4">
-              <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-teal-DEFAULT/10 border border-teal-DEFAULT/30">
-                <MapPin className="w-5 h-5 text-teal-300 shrink-0" />
+              <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-gray-100 border border-gray-300">
+                <MapPin className="w-5 h-5 text-black shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-teal-300">Arriving at Nexcharge Koramangala</p>
-                  <p className="text-xs text-white/60">Head to Bay 3 · Show QR code or enter CA7291</p>
+                  <p className="text-sm font-extrabold text-black">Arriving at Nexcharge Koramangala</p>
+                  <p className="text-xs text-gray-600 font-bold">Head to Bay 3 · Show QR code or enter CA7291</p>
                 </div>
               </div>
               <button
                 onClick={handleStartCharging}
                 disabled={loadingSession}
-                className="w-full py-3.5 rounded-xl bg-mint-gradient text-navy-900 font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90 disabled:opacity-60"
+                className="w-full py-3.5 rounded-xl bg-black text-white font-extrabold text-sm flex items-center justify-center gap-2 hover:bg-gray-900 disabled:opacity-60 shadow-md"
               >
-                {loadingSession ? <div className="w-5 h-5 border-2 border-navy-900/30 border-t-navy-900 rounded-full animate-spin" /> : <>⚡ Start Charging</>}
+                {loadingSession ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <>⚡ Start Charging</>}
               </button>
             </div>
           )}
@@ -244,7 +244,7 @@ export default function ActiveTripPage() {
               />
               <button
                 onClick={handleStopCharging}
-                className="w-full mt-4 py-3 rounded-xl border border-red-400/40 text-red-400 font-semibold text-sm hover:bg-red-400/5 transition-all"
+                className="w-full mt-4 py-3 rounded-xl border border-red-500 text-red-600 font-extrabold text-sm hover:bg-red-50 transition-all"
               >
                 Stop Charging
               </button>
@@ -253,16 +253,16 @@ export default function ActiveTripPage() {
 
           {phase === 'complete' && (
             <div className="pb-4">
-              <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-mint-400/10 border border-mint-400/30">
-                <CheckCircle2 className="w-5 h-5 text-mint-400 shrink-0" />
+              <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-mint-400">Charged to 80% ⚡</p>
-                  <p className="text-xs text-white/60">{energyKwh.toFixed(1)} kWh delivered · ₹{Math.round(costAccrued)}</p>
+                  <p className="text-sm font-extrabold text-emerald-700">Charged to 80% ⚡</p>
+                  <p className="text-xs text-gray-600 font-bold">{energyKwh.toFixed(1)} kWh delivered · ₹{Math.round(costAccrued)}</p>
                 </div>
               </div>
               <button
                 onClick={handleEndTrip}
-                className="w-full py-3.5 rounded-xl bg-mint-gradient text-navy-900 font-bold text-sm hover:opacity-90"
+                className="w-full py-3.5 rounded-xl bg-black text-white font-extrabold text-sm hover:bg-gray-900 shadow-md"
               >
                 Continue to Mysore →
               </button>
@@ -279,23 +279,23 @@ export default function ActiveTripPage() {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -80, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            className="absolute top-20 left-4 right-4 z-30 glass-card rounded-2xl p-4 border border-amber-400/40"
+            className="absolute top-20 left-4 right-4 z-30 bg-amber-50 rounded-2xl p-4 border border-amber-300 shadow-xl"
           >
             <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-amber-400 mb-1">Route Update</p>
-                <p className="text-xs text-white/70 mb-3">{rerouteAlert.message}</p>
+                <p className="text-sm font-extrabold text-amber-900 mb-1">Route Update</p>
+                <p className="text-xs text-amber-800 font-bold mb-3">{rerouteAlert.message}</p>
                 <div className="flex gap-2">
                   <button
                     onClick={() => { acceptReroute(); toast.success('Route updated to Ather Grid MG Road'); }}
-                    className="flex-1 py-2 rounded-xl bg-amber-400/15 border border-amber-400/40 text-amber-400 text-xs font-bold hover:bg-amber-400/25 transition-all"
+                    className="flex-1 py-2 rounded-xl bg-black text-white text-xs font-extrabold hover:bg-gray-900 transition-all shadow"
                   >
                     Accept Reroute
                   </button>
                   <button
                     onClick={() => { dismissReroute(); toast.info('Keeping original route'); }}
-                    className="px-4 py-2 rounded-xl border border-surface-border text-white/50 text-xs font-medium hover:text-white hover:border-white/20 transition-all"
+                    className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 text-xs font-bold hover:bg-white transition-all"
                   >
                     Dismiss
                   </button>

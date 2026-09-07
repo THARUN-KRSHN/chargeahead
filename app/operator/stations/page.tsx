@@ -30,13 +30,13 @@ export default function OperatorStationsPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 max-w-7xl mx-auto bg-white text-black">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Radio className="w-6 h-6 text-teal-300" /> Station Management
+          <h1 className="text-2xl font-extrabold text-black flex items-center gap-2">
+            <Radio className="w-6 h-6 text-black" /> Station Management
           </h1>
-          <p className="text-xs text-white/50">Manage operational parameters, pricing tariffs, and maintenance mode</p>
+          <p className="text-xs text-gray-500 font-bold">Manage operational parameters, pricing tariffs, and maintenance mode</p>
         </div>
 
         {/* Search */}
@@ -46,17 +46,17 @@ export default function OperatorStationsPage() {
             placeholder="Search stations or cities..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-navy-900 border border-surface-border rounded-xl px-4 py-2.5 pl-10 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-teal-300"
+            className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 pl-10 text-xs text-black font-bold placeholder:text-gray-400 focus:outline-none focus:border-black"
           />
-          <Search className="w-4 h-4 text-white/40 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
         </div>
       </div>
 
       {/* Stations Table */}
-      <div className="glass-card rounded-2xl overflow-hidden border border-surface-border">
+      <div className="bg-white rounded-2xl overflow-hidden border border-gray-200 shadow-xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-navy-900 border-b border-surface-border text-white/50 uppercase font-semibold text-[10px]">
+            <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 uppercase font-extrabold text-[10px]">
               <tr>
                 <th className="px-6 py-4">Station Name</th>
                 <th className="px-6 py-4">City</th>
@@ -66,43 +66,43 @@ export default function OperatorStationsPage() {
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-surface-border text-white/80">
-              {filtered.map((stn) => {
-                const isOp = stn.status === 'operational';
+            <tbody className="divide-y divide-gray-200 text-black">
+              {filtered.map((stn: any) => {
+                const isOp = stn.status === 'operational' || stn.status === 'available';
                 return (
-                  <tr key={stn.id} className="hover:bg-white/5 transition-colors">
+                  <tr key={stn.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="font-bold text-white">{stn.name}</div>
-                      <div className="text-[10px] text-white/40 font-mono">{stn.id} • {stn.ports.length} Ports</div>
+                      <div className="font-extrabold text-black">{stn.name}</div>
+                      <div className="text-[10px] text-gray-500 font-bold font-mono">{stn.id} • {stn.ports.length} Ports</div>
                     </td>
-                    <td className="px-6 py-4 font-medium">{stn.city}</td>
+                    <td className="px-6 py-4 font-bold">{stn.city}</td>
                     <td className="px-6 py-4">
                       <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                          isOp ? 'bg-emerald-400/15 text-emerald-400' : 'bg-amber-400/15 text-amber-400'
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
+                          isOp ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                         }`}
                       >
                         {isOp ? <CheckCircle className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
                         {stn.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 font-mono font-bold text-teal-300">
-                      ₹{stn.pricePerKwhInr} / kWh
+                    <td className="px-6 py-4 font-mono font-extrabold text-black">
+                      ₹{stn.pricePerKwhInr ?? stn.pricePerKwh} / kWh
                     </td>
-                    <td className="px-6 py-4 font-mono font-bold text-mint-400">
+                    <td className="px-6 py-4 font-mono font-extrabold text-emerald-700">
                       {stn.confidenceScore}% Usable
                     </td>
                     <td className="px-6 py-4 text-right space-x-2">
                       <button
                         onClick={() => toggleStationMaintenance(stn.id)}
-                        className="px-3 py-1.5 rounded-lg bg-surface-card border border-surface-border text-white/70 hover:text-white text-[11px] font-semibold transition-all"
+                        className="px-3 py-1.5 rounded-lg border border-gray-300 text-black hover:bg-gray-100 text-[11px] font-extrabold transition-all"
                       >
                         <Power className="w-3 h-3 inline mr-1" /> Toggle Mode
                       </button>
 
                       <Link
                         href={`/operator/stations/${stn.id}/edit`}
-                        className="px-3 py-1.5 rounded-lg bg-teal-500/20 text-teal-300 border border-teal-500/40 hover:bg-teal-500/30 text-[11px] font-bold transition-all"
+                        className="px-3 py-1.5 rounded-lg bg-black text-white hover:bg-gray-900 text-[11px] font-extrabold transition-all shadow-sm"
                       >
                         <Edit3 className="w-3 h-3 inline mr-1" /> Edit Tariff
                       </Link>

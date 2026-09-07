@@ -79,7 +79,7 @@ export default function HomePage() {
               className="flex items-center gap-2 bg-white/95 backdrop-blur-md border border-gray-200 rounded-2xl px-3 py-2 shadow-sm hover:border-black transition-all"
             >
               <Battery className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="text-xs font-bold text-black">{activeVehicle.nickname ?? activeVehicle.evModel.model}</span>
+              <span className="text-xs font-bold text-black">{activeVehicle.nickname ?? activeVehicle.evModel?.model ?? 'My EV'}</span>
               <span className="text-xs font-extrabold text-emerald-600">{activeVehicle.currentChargePercent}%</span>
               <ChevronRight className="w-3 h-3 text-gray-400" />
             </motion.div>

@@ -15,21 +15,21 @@ export default function ErrorBoundary({
   }, [error]);
 
   return (
-    <div className="min-h-dvh bg-navy-900 text-white flex flex-col items-center justify-center p-4 text-center space-y-6">
-      <div className="w-14 h-14 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 flex items-center justify-center">
+    <div className="min-h-dvh bg-white text-black flex flex-col items-center justify-center p-4 text-center space-y-6">
+      <div className="w-14 h-14 rounded-2xl bg-red-50 border border-red-200 text-red-600 flex items-center justify-center">
         <AlertTriangle className="w-7 h-7" />
       </div>
 
       <div className="space-y-2">
-        <h1 className="text-2xl font-bold">Something went wrong</h1>
-        <p className="text-xs text-white/50 max-w-sm mx-auto">
+        <h1 className="text-2xl font-extrabold text-black">Something went wrong</h1>
+        <p className="text-xs text-gray-600 font-bold max-w-sm mx-auto">
           An unexpected telemetry processing error occurred.
         </p>
       </div>
 
       <button
         onClick={() => reset()}
-        className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-mint-gradient text-navy-900 font-bold text-xs shadow-mint-glow hover:opacity-90 transition-all"
+        className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-black text-white font-extrabold text-xs shadow-md hover:bg-gray-900 transition-all"
       >
         <RefreshCw className="w-4 h-4" /> Try Again
       </button>

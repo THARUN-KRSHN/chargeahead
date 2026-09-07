@@ -31,24 +31,24 @@ export default function FaqPage() {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-12 md:py-20 space-y-8">
+    <div className="max-w-3xl mx-auto px-4 py-12 md:py-20 space-y-8 bg-white text-black">
       <div className="text-center space-y-3">
-        <HelpCircle className="w-10 h-10 text-mint-400 mx-auto" />
-        <h1 className="text-3xl font-extrabold text-white">Frequently Asked Questions</h1>
-        <p className="text-sm text-white/60">Everything you need to know about ChargeAhead's trip planning platform.</p>
+        <HelpCircle className="w-10 h-10 text-black mx-auto" />
+        <h1 className="text-3xl font-extrabold text-black">Frequently Asked Questions</h1>
+        <p className="text-sm text-gray-500 font-medium">Everything you need to know about ChargeAhead's trip planning platform.</p>
       </div>
 
       <div className="space-y-3">
         {FAQS.map((faq, idx) => {
           const isOpen = openIndex === idx;
           return (
-            <div key={idx} className="glass-card rounded-2xl border-surface-border overflow-hidden">
+            <div key={idx} className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
               <button
                 onClick={() => setOpenIndex(isOpen ? null : idx)}
-                className="w-full text-left p-5 flex items-center justify-between gap-4 font-semibold text-white text-sm hover:text-mint-400 transition-colors"
+                className="w-full text-left p-5 flex items-center justify-between gap-4 font-bold text-black text-sm hover:bg-gray-50 transition-colors"
               >
                 <span>{faq.q}</span>
-                <ChevronDown className={`w-4 h-4 text-mint-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`w-4 h-4 text-black shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
               </button>
 
               <AnimatePresence>
@@ -57,7 +57,7 @@ export default function FaqPage() {
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
-                    className="px-5 pb-5 text-xs text-white/60 leading-relaxed border-t border-surface-border/40 pt-3"
+                    className="px-5 pb-5 text-xs text-gray-600 font-medium leading-relaxed border-t border-gray-200 pt-3 bg-gray-50/50"
                   >
                     {faq.a}
                   </motion.div>
