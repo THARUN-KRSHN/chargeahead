@@ -24,6 +24,12 @@
   // Safety buffer: plan stops so you arrive with this fraction of full range still left
   const ARRIVAL_BUFFER_FRAC = 0.15; // 15% reserve
 
+  // Max detour off the OSRM polyline to treat a station as genuinely "on the way"
+  const ON_ROUTE_DETOUR_MAX_KM = 5;
+
+  // Corridor search radius around each sample point (also used for spacing)
+  const CORRIDOR_KM = 8;
+
   // ---------------------------------------------------------------------------
   // State
   // ---------------------------------------------------------------------------
@@ -86,6 +92,41 @@
       Math.sin(dLat / 2) ** 2 +
       Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  }
+
+  /**
+   * Build cumulative distance (km) along a polyline from vertex 0.
+   * Returns an array of the same length as polyline.
+   */
+  function cumulativeRouteKm(polyline) {
+    const cum = [0];
+    for (let i = 1; i < polyline.length; i++) {
+      cum.push(cum[i - 1] + haversineKm(polyline[i - 1], polyline[i]));
+    }
+    return cum;
+  }
+
+  /**
+   * For a station point, find the closest polyline vertex and return:
+   * { detourKm, routeProgressKm, closestIndex }
+   * detourKm = min haversine distance to any vertex (approx perpendicular offset)
+   * routeProgressKm = cumulative distance along the route to that closest vertex
+   */
+  function stationRouteMetrics(stationCoords, polyline, cumKm) {
+    let bestIdx = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < polyline.length; i++) {
+      const d = haversineKm(stationCoords, polyline[i]);
+      if (d < bestD) {
+        bestD = d;
+        bestIdx = i;
+      }
+    }
+    return {
+      detourKm: bestD,
+      routeProgressKm: cumKm[bestIdx] ?? 0,
+      closestIndex: bestIdx,
+    };
   }
 
   function remainingRangeKm() {
@@ -281,8 +322,14 @@
   }
 
   function isReachable(station) {
+    // When we know how far along the route the station sits, use that
+    // (real path progress). Otherwise fall back to straight-line from user.
+    const usable = usableRangeKm();
+    if (station.routeProgressKm != null) {
+      return station.routeProgressKm <= usable;
+    }
     if (station.distanceKm == null) return true;
-    return station.distanceKm <= usableRangeKm();
+    return station.distanceKm <= usable;
   }
 
   // ---------------------------------------------------------------------------
@@ -336,7 +383,7 @@
   function renderStationList(stations, title) {
     el.listTitle.textContent = title || "Nearby stations";
 
-    let filtered = stations;
+    let filtered = stations.slice();
     if (activeFilter) {
       filtered = filtered.filter((s) =>
         s.connections.some((c) => c.type === activeFilter)
@@ -344,6 +391,17 @@
     }
     if (reachableOnly) {
       filtered = filtered.filter(isReachable);
+    }
+
+    // Along a route: sort by progress along the trip (order you'd pass them).
+    // Nearby mode: keep straight-line distance from you.
+    const onRoute = filtered.some((s) => s.routeProgressKm != null);
+    if (onRoute) {
+      filtered.sort(
+        (a, b) => (a.routeProgressKm ?? 9999) - (b.routeProgressKm ?? 9999)
+      );
+    } else {
+      filtered.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
     }
 
     el.stationCount.textContent = String(filtered.length);
@@ -357,18 +415,32 @@
       return;
     }
 
-    const rem = remainingRangeKm();
     el.stationList.innerHTML = filtered
       .map((s) => {
-        const dist =
-          s.distanceKm != null ? `${s.distanceKm.toFixed(1)} km` : "";
         const reach = isReachable(s);
-        const reachLabel =
-          s.distanceKm != null
-            ? reach
-              ? `<span class="reach">in range</span>`
-              : `<span class="reach no">beyond range</span>`
-            : "";
+        const reachLabel = reach
+          ? `<span class="reach">in range</span>`
+          : `<span class="reach no">beyond range</span>`;
+
+        // Unambiguous distance labels
+        let distBits = [];
+        if (s.routeProgressKm != null) {
+          distBits.push(
+            `<span class="dist" title="Distance into your trip along the route">~${s.routeProgressKm.toFixed(1)} km into trip</span>`
+          );
+        }
+        if (s.detourKm != null) {
+          const onWay = s.detourKm <= ON_ROUTE_DETOUR_MAX_KM;
+          distBits.push(
+            `<span class="${onWay ? "detour-ok" : "detour-far"}" title="How far off the road path this station is">~${s.detourKm.toFixed(1)} km off route</span>`
+          );
+        }
+        if (s.distanceKm != null && s.routeProgressKm == null) {
+          distBits.push(
+            `<span class="dist" title="Straight-line distance from your position">${s.distanceKm.toFixed(1)} km from you</span>`
+          );
+        }
+
         const stale = isStale(s.dateLastVerified)
           ? `<span class="freshness">not recently verified</span>`
           : "";
@@ -382,7 +454,7 @@
           <div class="station-card ${selectedId === s.id ? "active" : ""} ${reach ? "" : "out-of-range"}" data-id="${s.id}">
             <div class="name">${escapeHtml(s.name)}</div>
             <div class="meta">
-              ${dist ? `<span class="dist">${dist}</span>` : ""}
+              ${distBits.join("")}
               ${reachLabel}
               <span>${escapeHtml(status)}</span>
               ${types ? `<span>${escapeHtml(types)}</span>` : ""}
@@ -473,17 +545,23 @@
           <span>${escapeHtml(s.status || "Unknown")}</span>
         </div>
         <div class="detail-item">
-          <label>Distance from you</label>
+          <label>From you (straight line)</label>
           <span>${s.distanceKm != null ? s.distanceKm.toFixed(2) + " km" : "—"}</span>
+        </div>
+        <div class="detail-item">
+          <label>Into trip (along route)</label>
+          <span>${s.routeProgressKm != null ? "~" + s.routeProgressKm.toFixed(1) + " km" : "—"}</span>
+        </div>
+        <div class="detail-item">
+          <label>Off route (detour)</label>
+          <span>${s.detourKm != null ? "~" + s.detourKm.toFixed(1) + " km" : "—"}</span>
         </div>
         <div class="detail-item">
           <label>Reachable now?</label>
           <span style="color:${reach ? "var(--accent)" : "var(--danger)"}">${
-            s.distanceKm == null
-              ? "—"
-              : reach
-                ? "Yes (within usable range)"
-                : "No — beyond remaining charge"
+            reach
+              ? "Yes (within usable range)"
+              : "No — beyond remaining charge"
           }</span>
         </div>
         <div class="detail-item">
@@ -634,24 +712,42 @@
     }
   }
 
-  function samplePolyline(polyline, maxSamples = 6) {
+  /**
+   * Distance-aware sampling along the route polyline.
+   * Aim for a sample about every (corridorKm * 1.5) km of real route length,
+   * clamped between 4 and 15 samples so short trips aren't under-sampled and
+   * long trips don't hammer the OCM rate limit.
+   */
+  function samplePolylineByDistance(polyline, routeDistanceKm, corridorKm) {
     if (!polyline || polyline.length === 0) return [];
-    if (polyline.length <= maxSamples) return polyline.slice();
+    const spacingKm = Math.max(3, corridorKm * 1.5);
+    let n = Math.ceil(routeDistanceKm / spacingKm) + 1;
+    n = Math.max(4, Math.min(15, n));
+    if (polyline.length <= n) return polyline.slice();
+
+    const cum = cumulativeRouteKm(polyline);
+    const total = cum[cum.length - 1] || routeDistanceKm || 1;
     const samples = [];
-    const step = (polyline.length - 1) / (maxSamples - 1);
-    for (let i = 0; i < maxSamples; i++) {
-      const idx = Math.round(i * step);
-      samples.push(polyline[Math.min(idx, polyline.length - 1)]);
+    for (let i = 0; i < n; i++) {
+      const target = (total * i) / (n - 1);
+      // Find vertex closest to this cumulative distance
+      let best = 0;
+      for (let j = 0; j < cum.length; j++) {
+        if (Math.abs(cum[j] - target) < Math.abs(cum[best] - target)) best = j;
+      }
+      samples.push(polyline[best]);
     }
     return samples;
   }
 
-  async function loadStationsAlongRoute(polyline, corridorKm = 8) {
+  async function loadStationsAlongRoute(polyline, corridorKm = CORRIDOR_KM) {
     el.stationList.innerHTML = `<div class="empty-state">Finding chargers along the route (live Open Charge Map)…</div>`;
     el.stationCount.textContent = "…";
     el.listTitle.textContent = "Stations along this route";
 
-    const samples = samplePolyline(polyline, 6);
+    const routeKm = lastRoute ? lastRoute.distanceKm : 0;
+    const samples = samplePolylineByDistance(polyline, routeKm, corridorKm);
+    // Ensure origin / destination are included
     if (userPos) samples.unshift(userPos);
     if (destCoords) samples.push(destCoords);
 
@@ -672,17 +768,21 @@
       await new Promise((r) => setTimeout(r, 200));
     }
 
-    const alongRoute = Array.from(seen.values()).filter((st) => {
-      let minD = Infinity;
-      for (const p of polyline) {
-        const d = haversineKm(st.coords, p);
-        if (d < minD) minD = d;
-        if (minD <= corridorKm) break;
-      }
-      return minD <= corridorKm;
-    });
+    // Attach detourKm + routeProgressKm using the real polyline geometry
+    const cumKm = cumulativeRouteKm(polyline);
+    const alongRoute = [];
+    for (const st of seen.values()) {
+      const m = stationRouteMetrics(st.coords, polyline, cumKm);
+      if (m.detourKm > corridorKm) continue; // outside corridor
+      st.detourKm = m.detourKm;
+      st.routeProgressKm = m.routeProgressKm;
+      alongRoute.push(st);
+    }
 
-    alongRoute.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+    // Order by how far into the trip you'd reach them
+    alongRoute.sort(
+      (a, b) => (a.routeProgressKm ?? 9999) - (b.routeProgressKm ?? 9999)
+    );
 
     clearStationMarkers();
     alongRoute.forEach(addStationMarker);
@@ -704,8 +804,97 @@
   }
 
   /**
-   * Build a simple charge-preserving plan from real route distance + user SoC.
-   * Suggests the furthest reachable station along the route when a stop is needed.
+   * Pick the best on-route stop: highest routeProgressKm still within usable range,
+   * among stations with detourKm ≤ ON_ROUTE_DETOUR_MAX_KM.
+   * Falls back to wider corridor with an honest "off-route" label if none qualify.
+   */
+  function pickBestStop(candidates, usable, preferOnRoute = true) {
+    const onRoute = candidates.filter(
+      (s) =>
+        s.detourKm != null &&
+        s.detourKm <= ON_ROUTE_DETOUR_MAX_KM &&
+        s.routeProgressKm != null &&
+        s.routeProgressKm <= usable
+    );
+    onRoute.sort((a, b) => (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0));
+    if (onRoute.length) {
+      return { station: onRoute[0], offRoute: false };
+    }
+    if (!preferOnRoute) return { station: null, offRoute: false };
+
+    // Fallback: any reachable station in the wider corridor (honest label)
+    const any = candidates
+      .filter(
+        (s) => s.routeProgressKm != null && s.routeProgressKm <= usable
+      )
+      .sort((a, b) => (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0));
+    if (any.length) {
+      return { station: any[0], offRoute: true };
+    }
+    return { station: null, offRoute: false };
+  }
+
+  /**
+   * Chain stops along the route until the remaining distance is within usable range.
+   * Assumes a full recharge at each stop (usable range available again).
+   */
+  function chainStops(candidates, tripKm, usable) {
+    const stops = [];
+    let covered = 0;
+    const usedIds = new Set();
+    let guard = 0;
+    while (tripKm - covered > usable && guard < 8) {
+      guard++;
+      const remainingUsableFromHere = usable; // after recharge at previous stop
+      // Candidates further along than what we've already covered
+      const ahead = candidates.filter(
+        (s) =>
+          !usedIds.has(s.id) &&
+          s.routeProgressKm != null &&
+          s.routeProgressKm > covered + 0.5 &&
+          s.routeProgressKm <= covered + remainingUsableFromHere
+      );
+      const pick = pickBestStop(ahead, covered + remainingUsableFromHere, true);
+      // pickBestStop filters by routeProgressKm <= usable from origin; re-filter for chain
+      let station = null;
+      let offRoute = false;
+      const onRouteAhead = ahead
+        .filter(
+          (s) => s.detourKm != null && s.detourKm <= ON_ROUTE_DETOUR_MAX_KM
+        )
+        .sort((a, b) => (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0));
+      if (onRouteAhead.length) {
+        station = onRouteAhead[0];
+        offRoute = false;
+      } else if (ahead.length) {
+        ahead.sort((a, b) => (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0));
+        station = ahead[0];
+        offRoute = true;
+      }
+      if (!station) break;
+      usedIds.add(station.id);
+      stops.push({ station, offRoute });
+      covered = station.routeProgressKm;
+    }
+    return stops;
+  }
+
+  function formatStopLabel(stop, offRoute) {
+    const s = stop;
+    const progress =
+      s.routeProgressKm != null
+        ? `~${s.routeProgressKm.toFixed(1)} km into trip`
+        : "progress unknown";
+    const detour =
+      s.detourKm != null ? `~${s.detourKm.toFixed(1)} km off route` : "";
+    const flag = offRoute
+      ? ` <em>(off-route — nearest option requires a larger detour)</em>`
+      : "";
+    return `<strong>${escapeHtml(s.name)}</strong> (${progress}${detour ? ", " + detour : ""})${flag}`;
+  }
+
+  /**
+   * Charge plan using route progress + detour, not straight-line distance from origin.
    */
   function updateChargePlan(route, stations) {
     const box = el.chargePlan;
@@ -718,49 +907,64 @@
     const usable = usableRangeKm();
     const tripKm = route.distanceKm;
 
-    // Stations matching connector filter (if any)
     let candidates = stations.slice();
     if (activeFilter) {
       candidates = candidates.filter((s) =>
         s.connections.some((c) => c.type === activeFilter)
       );
     }
-    // Prefer stations within usable range, sorted by distance from origin
-    const reachable = candidates
-      .filter(isReachable)
-      .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0));
 
     let cls = "ok";
     let html = `<h3>Charge plan</h3>`;
 
-    html += `<div class="plan-line">Trip distance: <strong>${tripKm.toFixed(1)} km</strong></div>`;
+    html += `<div class="plan-line">Trip distance (OSRM road): <strong>${tripKm.toFixed(1)} km</strong></div>`;
     html += `<div class="plan-line">Your remaining range: <strong>${rem.toFixed(0)} km</strong> (usable ~${usable.toFixed(0)} km with ${Math.round(ARRIVAL_BUFFER_FRAC * 100)}% reserve)</div>`;
 
     if (tripKm <= usable) {
       cls = "ok";
       html += `<div class="plan-line"><strong>Direct drive is feasible</strong> with current charge (arrives with reserve).</div>`;
-      if (reachable.length) {
-        html += `<div class="plan-line">Optional top-up along the way: ${escapeHtml(reachable[0].name)} (${reachable[0].distanceKm.toFixed(1)} km).</div>`;
-      }
-    } else if (tripKm <= rem) {
-      cls = "warn";
-      html += `<div class="plan-line"><strong>Tight on charge</strong> — trip is within absolute range but would use the reserve. A stop is recommended.</div>`;
-      if (reachable.length) {
-        const stop = reachable[reachable.length - 1]; // furthest still reachable
-        html += `<div class="plan-line">Suggested stop: <strong>${escapeHtml(stop.name)}</strong> at ${stop.distanceKm.toFixed(1)} km (still within usable range).</div>`;
-      } else {
-        html += `<div class="plan-line">No in-range stations found along this corridor for the selected charge type. Widen the filter or raise SoC.</div>`;
+      // Optional top-up: furthest on-route station still within usable range
+      const { station, offRoute } = pickBestStop(candidates, usable, true);
+      if (station) {
+        html += `<div class="plan-line">Optional top-up along the way: ${formatStopLabel(station, offRoute)}</div>`;
       }
     } else {
-      cls = "err";
-      html += `<div class="plan-line"><strong>Cannot complete trip on current charge</strong> — shortfall of ~${(tripKm - rem).toFixed(0)} km.</div>`;
-      if (reachable.length) {
-        const stop = reachable[reachable.length - 1];
-        html += `<div class="plan-line">Charge first at: <strong>${escapeHtml(stop.name)}</strong> (${stop.distanceKm.toFixed(1)} km away), then continue.</div>`;
-        const remainingAfterStop = tripKm - stop.distanceKm;
-        html += `<div class="plan-line">After that stop, ~${remainingAfterStop.toFixed(0)} km remain to destination (plan further stops if needed).</div>`;
+      // Need one or more stops
+      const stops = chainStops(candidates, tripKm, usable);
+      if (!stops.length) {
+        cls = "err";
+        html += `<div class="plan-line"><strong>Cannot complete trip on current charge</strong> — shortfall of ~${(tripKm - rem).toFixed(0)} km.</div>`;
+        // Show best off-route fallback if any exist at all within absolute range
+        const anyInAbsRange = candidates
+          .filter(
+            (s) =>
+              s.routeProgressKm != null && s.routeProgressKm <= rem
+          )
+          .sort((a, b) => (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0));
+        if (anyInAbsRange.length) {
+          const s = anyInAbsRange[0];
+          const off = !(s.detourKm != null && s.detourKm <= ON_ROUTE_DETOUR_MAX_KM);
+          html += `<div class="plan-line">Nearest option: ${formatStopLabel(s, off)}</div>`;
+        } else {
+          html += `<div class="plan-line">No reachable stations along this corridor for the selected charge type. Increase SoC or change filter.</div>`;
+        }
       } else {
-        html += `<div class="plan-line">No reachable stations along the route for the selected charge type. Increase SoC or change connector filter.</div>`;
+        cls = tripKm <= rem ? "warn" : "err";
+        if (tripKm <= rem) {
+          html += `<div class="plan-line"><strong>Tight on charge</strong> — a stop is recommended to keep the reserve.</div>`;
+        } else {
+          html += `<div class="plan-line"><strong>Cannot complete trip without charging</strong> — shortfall of ~${(tripKm - rem).toFixed(0)} km.</div>`;
+        }
+        stops.forEach((item, i) => {
+          html += `<div class="plan-line">Stop ${i + 1}: ${formatStopLabel(item.station, item.offRoute)}</div>`;
+        });
+        const last = stops[stops.length - 1].station;
+        const remainingAfter = tripKm - (last.routeProgressKm ?? 0);
+        if (remainingAfter > usable) {
+          html += `<div class="plan-line">After stop ${stops.length}, ~${remainingAfter.toFixed(0)} km remain — raise SoC or find more stations; corridor may be sparse.</div>`;
+        } else {
+          html += `<div class="plan-line">After stop ${stops.length}, remaining ~${remainingAfter.toFixed(0)} km is within usable range.</div>`;
+        }
       }
     }
 
@@ -768,7 +972,7 @@
       html += `<div class="plan-line">Filter active: <strong>${escapeHtml(activeFilter)}</strong></div>`;
     }
 
-    html += `<div class="plan-line" style="margin-top:0.4rem;color:var(--text-muted);font-size:0.72rem">Plan uses your entered SoC/range + real OSRM distance + live OCM stations. Occupancy is not predicted.</div>`;
+    html += `<div class="plan-line" style="margin-top:0.4rem;color:var(--text-muted);font-size:0.72rem">Stops ranked by distance <em>into the trip along the route</em>, not straight-line from your start. Detour ≤ ${ON_ROUTE_DETOUR_MAX_KM} km = on-route. Occupancy is not predicted.</div>`;
 
     box.className = "charge-plan " + cls;
     box.innerHTML = html;
@@ -809,7 +1013,7 @@
       route.polyline.forEach((p) => bounds.extend([p.lng, p.lat]));
       map.fitBounds(bounds, { padding: 60, duration: 1000 });
 
-      const along = await loadStationsAlongRoute(route.polyline, 8);
+      const along = await loadStationsAlongRoute(route.polyline, CORRIDOR_KM);
       updateChargePlan(route, along);
     } catch (err) {
       console.error(err);

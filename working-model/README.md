@@ -87,6 +87,13 @@ No other keys are required. All services used are free-tier / public:
 - **Filter by charge type**: connector dropdown built only from live OCM results.
 - After routing, a **Charge plan** box compares real OSRM trip distance to your remaining range and suggests the furthest reachable live station along the corridor when a stop is needed.
 
+
+### Route-aware stop selection
+
+- Each corridor station stores **detourKm** (how far off the OSRM path) and **routeProgressKm** (how far into the trip along the path).
+- Charge-plan recommendations prefer stations with detour ≤ 5 km and the **highest route progress still within usable range** — not the station closest to your start by straight line.
+- Station list is ordered by route progress (order you’d pass them) and shows “km into trip” + “km off route” labels.
+
 ## Explicit non-features (intentionally omitted)
 
 - Reservations, payments, wallet, login  

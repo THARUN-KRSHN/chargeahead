@@ -560,3 +560,21 @@ html, body {
 .station-card .reach.no {
   color: var(--danger);
 }
+
+.detour-ok {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.detour-far {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--warn);
+}
+
+.charge-plan em {
+  font-style: italic;
+  color: var(--warn);
+  font-weight: 500;
+}
