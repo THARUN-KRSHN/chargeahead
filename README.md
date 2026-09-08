@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ⚡ ChargeAhead — AI-Powered EV Charging & Route Optimization Platform
 
-## Getting Started
+ChargeAhead is a next-generation Electric Vehicle (EV) smart route planning and charging station reservation platform. It leverages Google Gemini AI for live traffic analysis, dynamic time-slot recommendations, intelligent tariff calculation, turn-by-turn voice navigation, and community-driven charger trustworthiness verification.
 
-First, run the development server:
+---
+
+## 🔗 Repository Versions & Links
+
+- 🌐 **Frontend / Demo Version**: [https://github.com/THARUN-KRSHN/chargeahead](https://github.com/THARUN-KRSHN/chargeahead)
+- ⚙️ **Working Version (Full-Stack Model)**: [https://github.com/THARUN-KRSHN/chargeahead/tree/real-working-model/working-model](https://github.com/THARUN-KRSHN/chargeahead/tree/real-working-model/working-model)
+
+---
+
+## 🚀 Quick Start Guide
+
+### 1. Running the Frontend / Demo Version (`main` branch)
 
 ```bash
+# Clone the repository
+git clone https://github.com/THARUN-KRSHN/chargeahead.git
+cd chargeahead
+
+# Install dependencies
+npm install
+
+# Start development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+### 2. Running the Full Working Model (`real-working-model` branch)
+
+```bash
+# Switch to the real-working-model branch
+git checkout real-working-model
+
+# Navigate to the working-model directory
+cd working-model
+
+# Install dependencies
+npm install
+
+# Start the full-stack development server
+npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## ✨ Key Features
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **🤖 Gemini AI Traffic & Time-Slot Advisor**: Analyzes road congestion and station queue history to recommend the optimal charging window with dynamic off-peak discounts.
+- **🗺️ Smart EV Route Planner**: Calculates optimal highway stops based on EV range, corridor detours, connector compatibility, and live charger status.
+- **🔊 Turn-by-Turn Voice Navigation**: Google Maps-style interactive navigation with live vehicle tracking, voice guidance, and charger arrival triggers.
+- **📊 Charger Trust Score & Community Reports**: Driver reporting system for port outages, cable defects, or queues to calculate live station trust scores.
+- **🔌 Exact Charger Bay & Landmark Details**: Shows precise bay locations (e.g., *Bay 1 - Express Canopy*) and landmark directions at stations.
+- **👥 Dual Portals**:
+  - **EV Drivers**: Vehicle management, route planning, slot reservation, wallet, and active navigation.
+  - **Station Operators**: Live station analytics, port utilization metrics, revenue charts, and incident management.
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 🛠 Tech Stack
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Framework**: [Next.js 16 (App Router)](https://nextjs.org/)
+- **Styling**: Vanilla CSS & Tailwind CSS utilities
+- **State Management**: Zustand
+- **Icons**: Lucide React
+- **Animations**: Framer Motion
+- **AI Integration**: Google Gemini API (`@google/genai`)
+- **Maps API**: Interactive Map components & OpenStreetMap / Leaflet / Mapbox integration
