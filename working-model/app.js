@@ -44,6 +44,11 @@
   // Corridor search radius around each sample point (also used for spacing)
   const CORRIDOR_KM = 8;
 
+  // Traffic-light tiers (reuse real detour / range numbers only)
+  const ON_ROUTE_DETOUR_GOOD_KM = ON_ROUTE_DETOUR_MAX_KM; // ≤5 km detour = green
+  const ON_ROUTE_DETOUR_FAR_KM = CORRIDOR_KM; // beyond corridor edge = red
+  const NEARBY_COMFORTABLE_FRACTION = 0.5; // nearby mode: green if well within usable range
+
   // Soft page size for long lists — all stations kept; "Show more" reveals the rest
   const LIST_PAGE_SIZE = 40;
 
@@ -71,6 +76,9 @@
   let safetyPercent = 20; // user-configurable reserve (% of full range)
   let listShowAll = false; // "show more" for long station lists
   let lastDeterministicPlan = null; // for Groq validation / fallback
+  let lastGroqResult = null; // { summary, stops:[{id,reason}], spokenText } after validation
+  let currentBriefingAudio = null; // HTMLAudioElement when Groq TTS is playing
+  let recommendedStationIds = new Set(); // highlighted on map + list
 
   // ---------------------------------------------------------------------------
   // DOM refs
@@ -225,6 +233,9 @@
       zoom: 12,
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
+    map.on("load", () => ensureMapLegend());
+    // If style already loaded (fallback), still try
+    setTimeout(ensureMapLegend, 500);
   }
 
   function placeUserMarker(pos, isFallback) {
@@ -360,31 +371,119 @@
   // ---------------------------------------------------------------------------
   // Markers & list
   // ---------------------------------------------------------------------------
+  const TIER_COLORS = {
+    green: "#22c55e",
+    yellow: "#f59e0b",
+    red: "#ef4444",
+  };
+
+  function classifyStationTier(station) {
+    const usable = usableRangeKm();
+    if (station.routeProgressKm != null) {
+      if (station.routeProgressKm > usable) return "red";
+      if (station.detourKm != null && station.detourKm <= ON_ROUTE_DETOUR_GOOD_KM)
+        return "green";
+      if (station.detourKm != null && station.detourKm <= ON_ROUTE_DETOUR_FAR_KM)
+        return "yellow";
+      return "red";
+    }
+    if (station.distanceKm == null) return "yellow";
+    if (station.distanceKm <= usable * NEARBY_COMFORTABLE_FRACTION) return "green";
+    if (station.distanceKm <= usable) return "yellow";
+    return "red";
+  }
+
+  function stopSpeaking() {
+    if (currentBriefingAudio) {
+      try {
+        currentBriefingAudio.pause();
+        currentBriefingAudio.src = "";
+      } catch (_) {}
+      currentBriefingAudio = null;
+    }
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  }
+
+  /**
+   * Comfort / break suggestions from real trip duration only (no fake POIs).
+   * Suggests rest stops at charge stops when duration warrants it.
+   */
+  function buildComfortBreakHints(tripKm, durationMin, plannedStops) {
+    const hours = (durationMin || 0) / 60;
+    const lines = [];
+    if (hours < 1.5 && tripKm < 80) {
+      lines.push("Short hop — stretch at the destination if you like; no mid-trip break needed.");
+      return lines;
+    }
+    if (hours < 3) {
+      lines.push("Comfort tip: a quick tea / washroom stop pairs well with any charge stop on this route.");
+    } else if (hours < 5) {
+      lines.push("Comfort tip: plan a proper meal + toilet break around a mid-route charge stop (roughly every 2–3 hours of driving).");
+    } else {
+      lines.push("Long drive: schedule meal and toilet breaks with each charge stop — aim to leave the seat every 2–3 hours.");
+    }
+    if (plannedStops && plannedStops.length) {
+      plannedStops.forEach((item, i) => {
+        const name = item.station && item.station.name ? item.station.name : "charge stop";
+        const progress = item.station && item.station.routeProgressKm != null
+          ? `~${item.station.routeProgressKm.toFixed(0)} km into the trip`
+          : "along the route";
+        if (i === 0 && hours >= 1.5) {
+          lines.push(`Suggested comfort pause at ${name} (${progress}): tea / coffee + quick stretch.`);
+        } else if (hours >= 3) {
+          lines.push(`At ${name} (${progress}): good moment for a meal or toilet break while charging.`);
+        }
+      });
+    } else if (hours >= 2) {
+      lines.push("Even without a required charge stop, consider a short tea break mid-way if you feel fatigued.");
+    }
+    return lines;
+  }
+
   function clearStationMarkers() {
     stationMarkers.forEach((m) => m.remove());
     stationMarkers = [];
   }
 
   function addStationMarker(station) {
-    const reachable = isReachable(station);
-    const color =
-      station.statusIsOperational === false
-        ? "#6b7280"
-        : reachable
-          ? "#22c55e"
-          : "#f59e0b";
+    const tier = classifyStationTier(station);
+    const color = TIER_COLORS[tier] || TIER_COLORS.yellow;
+    const offline = station.statusIsOperational === false;
+    const isRec = recommendedStationIds.has(station.id);
+    const size = isRec ? 34 : 28;
+    const border = isRec ? "3px solid #fff" : "2px solid #fff";
+    const ring = isRec
+      ? `0 0 0 3px ${color}, 0 0 12px ${color}aa`
+      : `0 0 8px ${color}80`;
+
     const node = document.createElement("div");
     node.style.cssText = `
-      width: 28px; height: 28px; border-radius: 50%;
+      width: ${size}px; height: ${size}px; border-radius: 50%;
       background: ${color};
-      border: 2px solid #fff;
-      box-shadow: 0 0 8px ${color}80;
+      border: ${border};
+      box-shadow: ${ring};
       cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      opacity: ${reachable ? 1 : 0.55};
+      opacity: ${offline ? 0.55 : 1};
+      position: relative;
     `;
-    node.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="#0f1419"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`;
-    node.title = station.name + (reachable ? "" : " (beyond current usable range)");
+    const warn = offline
+      ? `<span style="position:absolute;top:-6px;right:-6px;font-size:11px;line-height:1">⚠</span>`
+      : "";
+    node.innerHTML = `${warn}<svg width="14" height="14" viewBox="0 0 24 24" fill="#0f1419"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`;
+
+    const tierLabel =
+      tier === "green"
+        ? "Optimal — on route, short detour, in range"
+        : tier === "yellow"
+          ? "Slightly far — longer detour or near range edge"
+          : "Too far — beyond usable range or large detour";
+    node.title =
+      station.name +
+      " — " +
+      tierLabel +
+      (offline ? " — reported non-operational" : "") +
+      (isRec ? " — Recommended stop" : "");
 
     const marker = new maplibregl.Marker({ element: node })
       .setLngLat([station.coords.lng, station.coords.lat])
@@ -395,6 +494,21 @@
       selectStation(station);
     });
     stationMarkers.push(marker);
+  }
+
+  function ensureMapLegend() {
+    if (!map || document.getElementById("map-tier-legend")) return;
+    const box = document.createElement("div");
+    box.id = "map-tier-legend";
+    box.className = "map-tier-legend";
+    box.innerHTML = `
+      <div><span class="leg-dot" style="background:#22c55e"></span> Optimal — on route, short detour, in range</div>
+      <div><span class="leg-dot" style="background:#f59e0b"></span> Slightly far — longer detour or near range edge</div>
+      <div><span class="leg-dot" style="background:#ef4444"></span> Too far — beyond usable range or large detour</div>
+      <div><span class="leg-warn">⚠</span> Reported non-operational</div>
+    `;
+    const wrap = document.querySelector(".map-wrap");
+    if (wrap) wrap.appendChild(box);
   }
 
   function getActiveList() {
@@ -477,9 +591,14 @@
         ]
           .slice(0, 3)
           .join(", ");
+        const tier = classifyStationTier(s);
+        const tierColor = TIER_COLORS[tier] || TIER_COLORS.yellow;
+        const recBadge = recommendedStationIds.has(s.id)
+          ? `<span class="rec-badge">Recommended</span>`
+          : "";
         return `
           <div class="station-card ${selectedId === s.id ? "active" : ""} ${reach ? "" : "out-of-range"}" data-id="${s.id}">
-            <div class="name">${escapeHtml(s.name)}</div>
+            <div class="name"><span class="tier-dot" style="background:${tierColor}" title="${tier}"></span>${escapeHtml(s.name)}${recBadge}</div>
             <div class="meta">
               <span class="dist" title="Straight-line distance from your position">${fromYou}</span>
               <span class="dist" title="Distance into your trip along the route">${intoTrip}</span>
@@ -777,7 +896,10 @@
     el.routeInfo.classList.add("hidden");
     el.chargePlan.classList.add("hidden");
     if (el.aiPlan) el.aiPlan.classList.add("hidden");
+    stopSpeaking();
     lastDeterministicPlan = null;
+    lastGroqResult = null;
+    recommendedStationIds = new Set();
     listShowAll = false;
     el.destInput.value = "";
     if (userPos) {
@@ -1059,11 +1181,30 @@
       html += `<div class="plan-line">Filter active: <strong>${escapeHtml(activeFilter)}</strong></div>`;
     }
 
+    // Friendly comfort / break gestures from real duration only
+    const comfort = buildComfortBreakHints(
+      tripKm,
+      route.durationMin || 0,
+      plannedStops
+    );
+    if (comfort.length) {
+      html += `<div class="plan-line comfort-title"><strong>Comfort tips</strong></div>`;
+      comfort.forEach((line) => {
+        html += `<div class="plan-line comfort">${escapeHtml(line)}</div>`;
+      });
+    }
+
     html += `<div class="plan-line" style="margin-top:0.4rem;color:var(--text-muted);font-size:0.72rem">Deterministic plan: real OSRM distance + your SoC/range/reserve + live OCM stations. Stops ranked by route progress; detour ≤ ${ON_ROUTE_DETOUR_MAX_KM} km = on-route. Occupancy not predicted.</div>`;
+
+    html += voiceButtonRowHtml();
+
+    stopSpeaking();
+    lastGroqResult = null;
 
     box.className = "charge-plan " + cls;
     box.innerHTML = html;
     box.classList.remove("hidden");
+    wireVoiceButtons(box);
 
     lastDeterministicPlan = {
       verdict,
@@ -1073,10 +1214,142 @@
       margin,
       usable,
       candidates,
+      durationMin: route.durationMin || 0,
+      spareKm,
+      sparePct,
+      comfort,
     };
+
+    // Highlight recommended stops on map + list
+    recommendedStationIds = new Set(
+      plannedStops.map((p) => p.station && p.station.id).filter((id) => id != null)
+    );
+    // Re-render markers/list to apply highlight
+    if (routeStations.length) {
+      clearStationMarkers();
+      routeStations.forEach(addStationMarker);
+      renderStationList(routeStations, "Stations along this route");
+    }
 
     // Kick off optional Groq narration (non-blocking)
     requestGroqPlan(route, candidates, lastDeterministicPlan);
+  }
+
+  function voiceButtonRowHtml() {
+    return `<div class="voice-row">
+      <button type="button" class="btn-voice play-briefing">🔊 Play voice briefing</button>
+      <button type="button" class="btn-voice stop-briefing">⏹ Stop</button>
+    </div>`;
+  }
+
+  function wireVoiceButtons(container) {
+    if (!container) return;
+    const play = container.querySelector(".play-briefing");
+    const stop = container.querySelector(".stop-briefing");
+    if (play) {
+      play.addEventListener("click", async () => {
+        const text = buildSpokenText(lastDeterministicPlan, lastGroqResult);
+        if (!text) {
+          showMapMessage("No plan to read yet — set a destination first.", true);
+          return;
+        }
+        play.disabled = true;
+        play.textContent = "Generating…";
+        try {
+          await speakPlan(text);
+        } finally {
+          play.disabled = false;
+          play.textContent = "🔊 Play voice briefing";
+        }
+      });
+    }
+    if (stop) stop.addEventListener("click", () => stopSpeaking());
+  }
+
+  function buildSpokenText(detPlan, groqResult) {
+    if (groqResult && groqResult.spokenText) return groqResult.spokenText;
+    if (!detPlan) return "";
+
+    const parts = [];
+    const trip = detPlan.tripKm != null ? detPlan.tripKm.toFixed(1) : "?";
+    parts.push(`Your trip is about ${trip} kilometers.`);
+
+    if (detPlan.verdict === "no_stop") {
+      const spare =
+        detPlan.spareKm != null ? detPlan.spareKm.toFixed(0) : "some";
+      parts.push(
+        `You'll arrive with about ${spare} kilometers to spare. No charging stop needed.`
+      );
+    } else if (detPlan.verdict === "impossible") {
+      parts.push(
+        "You cannot complete this trip within your current charge and safety reserve. Please raise your state of charge or adjust the reserve."
+      );
+    } else if (detPlan.plannedStops && detPlan.plannedStops.length) {
+      parts.push(
+        detPlan.plannedStops.length === 1
+          ? "One charging stop is recommended."
+          : `${detPlan.plannedStops.length} charging stops are recommended.`
+      );
+      detPlan.plannedStops.forEach((item, i) => {
+        const s = item.station;
+        if (!s) return;
+        const progress =
+          s.routeProgressKm != null
+            ? `about ${s.routeProgressKm.toFixed(0)} kilometers into the trip`
+            : "along the route";
+        const detour =
+          s.detourKm != null
+            ? `, about ${s.detourKm.toFixed(1)} kilometers off the road path`
+            : "";
+        parts.push(
+          `Stop ${i + 1}: ${s.name}, ${progress}${detour}.`
+        );
+      });
+    }
+
+    if (detPlan.comfort && detPlan.comfort.length) {
+      parts.push(detPlan.comfort.join(" "));
+    }
+
+    return parts.join(" ");
+  }
+
+  async function speakPlan(text) {
+    stopSpeaking();
+    if (GROQ_API_KEY && GROQ_API_KEY.trim()) {
+      try {
+        const res = await fetch("https://api.groq.com/openai/v1/audio/speech", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${GROQ_API_KEY.trim()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "playai-tts",
+            voice: "Aaliyah-PlayAI",
+            input: text.slice(0, 4000),
+            response_format: "mp3",
+          }),
+        });
+        if (!res.ok) throw new Error(`Groq TTS ${res.status}`);
+        const blob = await res.blob();
+        const audio = new Audio(URL.createObjectURL(blob));
+        currentBriefingAudio = audio;
+        await audio.play();
+        return audio;
+      } catch (err) {
+        console.warn("Groq TTS failed, falling back to browser speech:", err);
+      }
+    }
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1;
+      window.speechSynthesis.speak(u);
+      return null;
+    }
+    showMapMessage("Voice briefing isn't supported in this browser.", true);
+    return null;
   }
 
   // ---------------------------------------------------------------------------
@@ -1218,13 +1491,47 @@ Return JSON shape:
         });
       }
       html += `<div class="plan-line" style="margin-top:0.35rem;color:var(--text-muted);font-size:0.72rem">Station facts (distances, connectors) come from Open Charge Map / OSRM — not from the model. Invalid model IDs were dropped.</div>`;
+      html += voiceButtonRowHtml();
+
+      // Spoken text prefers AI summary + validated stop reasons
+      const spokenParts = [];
+      if (parsed.summary) spokenParts.push(parsed.summary);
+      validStops.forEach((st, i) => {
+        const reason = reasonById[st.id];
+        spokenParts.push(
+          `Stop ${i + 1}: ${st.name}` + (reason ? `. ${reason}` : ".")
+        );
+      });
+      if (detPlan && detPlan.comfort && detPlan.comfort.length) {
+        spokenParts.push(detPlan.comfort.join(" "));
+      }
+      lastGroqResult = {
+        summary: parsed.summary || "",
+        stops: validStops.map((st) => ({
+          id: st.id,
+          reason: reasonById[st.id] || "",
+        })),
+        spokenText: spokenParts.join(" "),
+      };
+
+      // Prefer AI-validated stops for map highlight when present
+      if (validStops.length) {
+        recommendedStationIds = new Set(validStops.map((st) => st.id));
+        if (routeStations.length) {
+          clearStationMarkers();
+          routeStations.forEach(addStationMarker);
+          renderStationList(routeStations, "Stations along this route");
+        }
+      }
 
       el.aiPlan.className = "charge-plan ai-plan ok";
       el.aiPlan.innerHTML = html;
       el.aiPlan.classList.remove("hidden");
+      wireVoiceButtons(el.aiPlan);
     } catch (err) {
       console.warn("Groq plan failed:", err);
       el.aiPlan.classList.add("hidden");
+      lastGroqResult = null;
     }
   }
 

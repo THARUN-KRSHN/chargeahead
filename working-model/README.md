@@ -97,6 +97,13 @@ Free key sign-ups: [openchargemap.org](https://openchargemap.org), [console.groq
 - Optional **Groq** narration (`GROQ_API_KEY` in `app.js`, free at console.groq.com). Deterministic plan always shows first; AI box updates when available. Station IDs from the model are validated against the real OCM list; factual fields never come from the LLM.
 - **Client-side Groq key exposure** is acceptable for a judged demo only — not production-ready.
 
+
+### Voice briefing & traffic-light markers
+
+- **Play voice briefing** reads the current plan (Groq summary when available, otherwise the deterministic plan + comfort tips). Uses Groq PlayAI TTS when `VITE_GROQ_API_KEY` is set; otherwise the browser’s built-in speech synthesis.
+- Map markers and list dots use **green / yellow / red** tiers from real `detourKm` / `routeProgressKm` / range — not invented occupancy.
+- Comfort tips (tea / meal / toilet) are suggested from **real trip duration** and paired with required charge stops when present.
+
 ## Explicit non-features (intentionally omitted)
 
 - Reservations, payments, wallet, login  

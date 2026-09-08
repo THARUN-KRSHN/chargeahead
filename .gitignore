@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/working-model/node_modules
 /.pnp
 .pnp.*
 .yarn/*

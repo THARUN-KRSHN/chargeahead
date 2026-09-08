@@ -623,3 +623,92 @@ html, body {
   margin: 0.5rem 0.25rem 0.25rem;
   width: calc(100% - 0.5rem);
 }
+
+/* Traffic-light legend on map */
+.map-tier-legend {
+  position: absolute;
+  bottom: 28px;
+  left: 10px;
+  z-index: 6;
+  background: rgba(15, 20, 25, 0.92);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.7rem;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  max-width: 260px;
+  pointer-events: none;
+}
+
+.leg-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}
+
+.leg-warn {
+  margin-right: 0.25rem;
+}
+
+.tier-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+}
+
+.rec-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  background: var(--accent);
+  color: #052e16;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  margin-left: 0.4rem;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.voice-row {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.btn-voice {
+  flex: 1;
+  min-width: 120px;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-voice:hover {
+  border-color: var(--accent);
+}
+
+.btn-voice:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.comfort-title {
+  margin-top: 0.5rem;
+}
+
+.plan-line.comfort {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
