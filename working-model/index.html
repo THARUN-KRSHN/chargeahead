@@ -1,86 +1,199 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ChargeAhead — Real Working Model</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <title>ChargeAhead — EV Charging Navigator</title>
+  <meta name="description" content="Find EV charging stations along your route in India. Live data from Open Charge Map with Gemini AI-powered next-stop recommendations." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
   <div id="app">
-    <!-- Header -->
-    <header class="header">
-      <div class="header-left">
-        <h1>ChargeAhead <span class="badge">Real Working Model</span></h1>
-        <p class="subtitle">Live data only · Open Charge Map + OSRM + Nominatim + OSM</p>
+
+    <!-- Full-screen map canvas -->
+    <div id="map"></div>
+
+    <!-- Map toast (loading / error messages) -->
+    <div id="map-message" class="map-toast hidden"></div>
+
+    <div id="live-navigation" class="live-navigation hidden" role="status" aria-live="polite">
+      <div class="live-navigation-label">Next instruction</div>
+      <div id="live-instruction" class="live-instruction">Start driving</div>
+      <div id="live-distance" class="live-distance"></div>
+    </div>
+
+    <button id="recenter-btn" class="recenter-btn" type="button" aria-label="Recenter map on current location" title="Recenter map on current location" disabled>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+      </svg>
+      <span>Recenter</span>
+    </button>
+
+    <!-- ── Mobile top-bar ──────────────────────────────────────────────── -->
+    <header class="topbar" id="topbar">
+      <div class="topbar-logo">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="topbar-name">ChargeAhead</span>
       </div>
-      <div class="header-right">
-        <div id="location-status" class="status-pill">Locating…</div>
-      </div>
+      <div id="location-status" class="status-pill">Locating…</div>
     </header>
 
-    <!-- Main layout -->
-    <div class="main">
-      <!-- Sidebar -->
-      <aside class="sidebar">
-        <!-- Search -->
-        <section class="panel">
-          <h2>Destination</h2>
+    <!-- ── Floating side panel (desktop) / bottom-sheet (mobile) ────── -->
+    <div id="side-panel" class="side-panel" aria-label="Controls">
+
+      <!-- Desktop logo strip -->
+      <div class="panel-brand">
+        <div class="panel-brand-logo">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-name">ChargeAhead</span>
+        </div>
+        <div id="location-status-desktop" class="status-pill status-pill--sm">Locating…</div>
+      </div>
+
+      <div class="panel-scroll">
+
+        <!-- Vehicle selection -->
+        <section class="panel-section" id="vehicle-panel">
+          <div class="section-label">
+            Your Vehicle
+          </div>
+          <div class="select-stack">
+            <div class="select-wrap">
+              <select id="vehicle-model" class="ca-select" disabled>
+                <option value="">Loading models...</option>
+              </select>
+              <span class="select-chevron">&gt;</span>
+            </div>
+          </div>
+          <div id="vehicle-info" class="vehicle-stats hidden">
+            <div class="stat-chip">
+              <span class="stat-label">Electric Range</span>
+              <span id="vehicle-range" class="stat-value">—</span>
+            </div>
+            <div class="stat-chip">
+              <span class="stat-label">CAFV Status</span>
+              <span id="vehicle-cafv" class="stat-value">—</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Destination search -->
+        <section class="panel-section">
+          <div class="section-label">
+            Where to?
+          </div>
           <div class="search-wrap">
             <input
               id="dest-input"
               type="text"
-              placeholder="Search place in India (e.g. Mysuru, Connaught Place)…"
+              placeholder="Search a place in India…"
               autocomplete="off"
             />
             <ul id="suggestions" class="suggestions hidden"></ul>
           </div>
           <div id="route-info" class="route-info hidden">
             <div class="route-stats">
-              <span id="route-distance">—</span>
-              <span id="route-duration">—</span>
+              <div class="route-stat">
+                <span class="route-stat-label">Distance</span>
+                <span id="route-distance" class="route-stat-value">—</span>
+              </div>
+              <div class="route-stat">
+                <span class="route-stat-label">Duration</span>
+                <span id="route-duration" class="route-stat-value">—</span>
+              </div>
             </div>
-            <button id="clear-route" class="btn-secondary">Clear route</button>
+            <button id="clear-route" class="btn-ghost">
+              Clear route
+            </button>
+            <button id="start-journey" class="btn-primary" type="button" disabled>
+              Start journey
+            </button>
+            <div id="route-instructions" class="route-instructions hidden">
+              <div class="route-instructions-title">Driving instructions</div>
+              <ol id="instruction-list" class="instruction-list"></ol>
+            </div>
           </div>
         </section>
 
-        <!-- Optional filter: connector type (derived from real data) -->
-        <section class="panel" id="filter-panel">
-          <h2>Filter by connector</h2>
-          <select id="connector-filter">
-            <option value="">All connectors (from live results)</option>
-          </select>
-          <p class="hint">Options are built only from connectors actually returned by Open Charge Map for the current stations.</p>
+        <!-- Connector filter -->
+        <section class="panel-section" id="filter-panel">
+          <div class="section-label">
+            Connector Type
+          </div>
+          <div class="select-wrap">
+            <select id="connector-filter" class="ca-select">
+              <option value="">All connectors</option>
+            </select>
+            <span class="select-chevron">&gt;</span>
+          </div>
+          <p class="hint-text">Options are built from live Open Charge Map results.</p>
         </section>
 
         <!-- Station list -->
-        <section class="panel list-panel">
+        <section class="panel-section list-section">
           <div class="list-header">
-            <h2 id="list-title">Nearby stations</h2>
-            <span id="station-count" class="count">0</span>
+            <span id="list-title" class="list-title">Nearby stations</span>
+            <span id="station-count" class="count-badge">0</span>
           </div>
           <div id="station-list" class="station-list">
-            <div class="empty-state">Waiting for location…</div>
+            <div class="empty-state">
+              <div>Waiting for location...</div>
+            </div>
           </div>
         </section>
-      </aside>
 
-      <!-- Map -->
-      <div class="map-wrap">
-        <div id="map"></div>
-        <div id="map-message" class="map-message hidden"></div>
+      </div><!-- /.panel-scroll -->
+    </div><!-- /#side-panel -->
+
+    <!-- ── Mobile FAB ──────────────────────────────────────────────────── -->
+    <button id="panel-fab" class="panel-fab" aria-label="Toggle controls" aria-expanded="false">
+      <span class="fab-icon fab-icon--open">+</span>
+      <span class="fab-icon fab-icon--close hidden">x</span>
+    </button>
+
+    <!-- ── AI Recommendation card (floating, bottom-right) ───────────── -->
+    <div id="ai-card" class="ai-card">
+      <div class="ai-card-header">
+        <div class="ai-badge">
+          <span class="ai-badge-dot"></span>
+          Gemini · Next Best Stop
+        </div>
+        <button id="ai-refresh" class="ai-refresh-btn" type="button" title="Refresh recommendation" aria-label="Refresh recommendation">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+        </button>
       </div>
+      <div id="ai-status" class="ai-card-status">Select a vehicle to get an AI-ranked stop.</div>
+      <div id="ai-result" class="ai-card-result hidden"></div>
     </div>
 
-    <!-- Detail drawer -->
-    <div id="detail-drawer" class="drawer hidden">
-      <button id="close-drawer" class="drawer-close" aria-label="Close">×</button>
-      <div id="detail-content"></div>
+    <!-- ── Station detail drawer ───────────────────────────────────────── -->
+    <div id="detail-drawer" class="detail-drawer hidden" role="dialog" aria-label="Station details">
+      <div class="drawer-handle-bar"></div>
+      <button id="close-drawer" class="drawer-close-btn" aria-label="Close">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+      <div id="detail-content" class="detail-content"></div>
     </div>
-  </div>
+
+  </div><!-- /#app -->
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="app.js"></script>
 </body>
+
 </html>

@@ -74,6 +74,8 @@ No other keys are required. All services used are free-tier / public:
 
 **Data-freshness badge** — If `DateLastVerified` is older than 90 days (or missing), a small “not recently verified” label is shown. This is a plain date-based flag, not a confidence score or percentage.
 
+**Gemini-ranked next stop** — The sidebar now includes a `Next Best Stop` card that ranks only live stations that remain inside a conservative backup buffer. The API key is embedded in `app.js` for local testing, so restrict or replace it before any public deployment.
+
 ---
 
 ## Explicit non-features (intentionally omitted)
