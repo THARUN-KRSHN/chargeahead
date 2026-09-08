@@ -1,11 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { ShieldCheck, ArrowRight, MapPin, Clock, BatteryCharging, Sparkles, AlertTriangle, Users, Award, Play } from 'lucide-react';
 import Link from 'next/link';
 import { ConfidenceScore } from '@/components/shared/ConfidenceScore';
+import { PresentationModal } from '@/components/marketing/PresentationModal';
 
 export default function MarketingLandingPage() {
+  const [presentationOpen, setPresentationOpen] = useState(false);
+
   return (
     <div className="space-y-24 pb-20 bg-white text-black">
       {/* Hero Section */}
@@ -50,17 +54,24 @@ export default function MarketingLandingPage() {
           className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4"
         >
           <Link
-            href="/login"
-            className="w-full sm:w-auto px-8 py-4 rounded-xl bg-black text-white font-extrabold text-base shadow-md hover:bg-gray-900 transition-all flex items-center justify-center gap-2"
+            href="/app/home"
+            className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-black text-white font-black text-base shadow-xl hover:bg-slate-900 transition-all flex items-center justify-center gap-2"
           >
-            Sign In to Access Navigation <ArrowRight className="w-5 h-5" />
+            Launch App <ArrowRight className="w-5 h-5 text-emerald-400" />
           </Link>
+
+          <button
+            onClick={() => setPresentationOpen(true)}
+            className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-base shadow-xl transition-all flex items-center justify-center gap-2 uppercase tracking-wider"
+          >
+            Launch Presentation <Play className="w-4 h-4 fill-current" />
+          </button>
 
           <Link
             href="/how-it-works"
-            className="w-full sm:w-auto px-8 py-4 rounded-xl border border-gray-300 bg-white text-black font-extrabold text-base hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-8 py-4 rounded-2xl border border-gray-300 bg-white text-black font-extrabold text-base hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
           >
-            See Confidence Engine <Play className="w-4 h-4 text-black fill-black" />
+            See Confidence Engine <Sparkles className="w-4 h-4 text-emerald-600" />
           </Link>
         </motion.div>
 
@@ -217,6 +228,12 @@ export default function MarketingLandingPage() {
           </Link>
         </div>
       </section>
+
+      {/* Product Presentation Modal */}
+      <PresentationModal
+        isOpen={presentationOpen}
+        onClose={() => setPresentationOpen(false)}
+      />
     </div>
   );
 }

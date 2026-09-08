@@ -17,6 +17,7 @@ import {
   X,
   ChevronDown,
   Loader2,
+  Car,
 } from 'lucide-react';
 import { searchPlacesReal, reverseGeocodeReal, computeRealEVRoute, type RealPlace, type RealRoutePlan } from '@/lib/api/geoServices';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
@@ -282,9 +283,11 @@ export function LeftTripPlannerPanel({
               {/* Vehicle Selector */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <Battery className="w-4 h-4 text-emerald-600" />
+                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black">
+                    <Car className="w-4 h-4 text-emerald-600" />
+                  </div>
                   <div>
-                    <div className="text-xs font-extrabold text-slate-900">
+                    <div className="text-xs font-extrabold text-slate-900 flex items-center gap-1">
                       {currentVehicle.nickname || `${currentVehicle.evModel?.make ?? 'EV'} ${currentVehicle.evModel?.model ?? 'Vehicle'}`}
                     </div>
                     <div className="text-[11px] text-slate-500 font-medium">
@@ -301,15 +304,16 @@ export function LeftTripPlannerPanel({
                       setActiveVehicle(found);
                     }
                   }}
-                  className="bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs font-extrabold text-slate-800 focus:outline-none focus:border-slate-400"
+                  className="bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-extrabold text-slate-800 focus:outline-none focus:border-emerald-500 shadow-sm"
                 >
                   {MOCK_VEHICLES.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.nickname || `${v.evModel?.make} ${v.evModel?.model}`}
+                      🚘 {v.nickname || `${v.evModel?.make} ${v.evModel?.model}`}
                     </option>
                   ))}
                 </select>
               </div>
+
 
               {/* From / To Location Fields */}
               <div className="relative space-y-2 bg-slate-50 border border-slate-200 rounded-2xl p-3">
