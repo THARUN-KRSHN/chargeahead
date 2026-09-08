@@ -11,24 +11,41 @@
   "use strict";
 
   // ---------------------------------------------------------------------------
-  // Config — put a free OCM key here if you hit rate limits
-  // Register at https://openchargemap.org (free)
+  // Config — keys from Vite env (see .env.example). Leave blank for free fallbacks.
+  // Client-side keys are OK for a hackathon demo only, not production.
   // ---------------------------------------------------------------------------
-  const OCM_API_KEY = ""; // optional; leave empty for anonymous (low volume)
+  const OCM_API_KEY = import.meta.env.VITE_OCM_API_KEY || "";
+  const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || "";
+  const MAPTILER_API_KEY = import.meta.env.VITE_MAPTILER_API_KEY || "";
 
   const OCM_BASE = "https://api.openchargemap.io/v3/poi/";
   const NOMINATIM = "https://nominatim.openstreetmap.org/search";
   const OSRM = "https://router.project-osrm.org/route/v1/driving";
+  const GROQ_CHAT = "https://api.groq.com/openai/v1/chat/completions";
   const FALLBACK_CENTER = { lat: 12.9716, lng: 77.5946 }; // Bengaluru (labeled as default)
 
-  // Safety buffer: plan stops so you arrive with this fraction of full range still left
-  const ARRIVAL_BUFFER_FRAC = 0.15; // 15% reserve
+  // Raw OSM raster style — used when MapTiler key is blank
+  const OSM_FALLBACK_STYLE = {
+    version: 8,
+    sources: {
+      osm: {
+        type: "raster",
+        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tileSize: 256,
+        attribution: "© OpenStreetMap contributors",
+      },
+    },
+    layers: [{ id: "osm", type: "raster", source: "osm" }],
+  };
 
   // Max detour off the OSRM polyline to treat a station as genuinely "on the way"
   const ON_ROUTE_DETOUR_MAX_KM = 5;
 
   // Corridor search radius around each sample point (also used for spacing)
   const CORRIDOR_KM = 8;
+
+  // Soft page size for long lists — all stations kept; "Show more" reveals the rest
+  const LIST_PAGE_SIZE = 40;
 
   // ---------------------------------------------------------------------------
   // State
@@ -51,6 +68,9 @@
   // User-provided battery (no invented vehicle model)
   let socPercent = 70;
   let fullRangeKm = 350;
+  let safetyPercent = 20; // user-configurable reserve (% of full range)
+  let listShowAll = false; // "show more" for long station lists
+  let lastDeterministicPlan = null; // for Groq validation / fallback
 
   // ---------------------------------------------------------------------------
   // DOM refs
@@ -60,13 +80,16 @@
     locationStatus: $("location-status"),
     socInput: $("soc-input"),
     fullRangeInput: $("full-range-input"),
+    safetyInput: $("safety-input"),
     remainingRange: $("remaining-range"),
+    safetySummary: $("safety-summary"),
     destInput: $("dest-input"),
     suggestions: $("suggestions"),
     routeInfo: $("route-info"),
     routeDistance: $("route-distance"),
     routeDuration: $("route-duration"),
     chargePlan: $("charge-plan"),
+    aiPlan: $("ai-plan"),
     clearRoute: $("clear-route"),
     connectorFilter: $("connector-filter"),
     reachableOnly: $("reachable-only"),
@@ -135,15 +158,24 @@
     return full * (soc / 100);
   }
 
+  function safetyMarginKm() {
+    const full = Math.max(1, Number(fullRangeKm) || 1);
+    const pct = Math.max(0, Math.min(50, Number(safetyPercent) || 0));
+    return full * (pct / 100);
+  }
+
+  /** Distance you can drive while still keeping the safety reserve */
   function usableRangeKm() {
-    // Keep a reserve so you don't plan to arrive at 0%
-    return Math.max(0, remainingRangeKm() - fullRangeKm * ARRIVAL_BUFFER_FRAC);
+    return Math.max(0, remainingRangeKm() - safetyMarginKm());
   }
 
   function updateRangeUI() {
     const rem = remainingRangeKm();
-    el.remainingRange.textContent = `${rem.toFixed(0)} km`;
-    // Refresh list badges if we already have stations
+    const margin = safetyMarginKm();
+    el.remainingRange.textContent = `${rem.toFixed(0)} km (${socPercent}%)`;
+    if (el.safetySummary) {
+      el.safetySummary.textContent = `${margin.toFixed(0)} km (${safetyPercent}%)`;
+    }
     const list = routeStations.length ? routeStations : currentStations;
     if (list.length) {
       renderStationList(
@@ -182,20 +214,13 @@
   // 1. Map + Geolocation
   // ---------------------------------------------------------------------------
   function initMap(center) {
+    const mapStyle = MAPTILER_API_KEY
+      ? `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_API_KEY}`
+      : OSM_FALLBACK_STYLE;
+
     map = new maplibregl.Map({
       container: "map",
-      style: {
-        version: 8,
-        sources: {
-          osm: {
-            type: "raster",
-            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-            tileSize: 256,
-            attribution: "© OpenStreetMap contributors",
-          },
-        },
-        layers: [{ id: "osm", type: "raster", source: "osm" }],
-      },
+      style: mapStyle,
       center: [center.lng, center.lat],
       zoom: 12,
     });
@@ -415,31 +440,33 @@
       return;
     }
 
-    el.stationList.innerHTML = filtered
+    // Explicit page — never silent truncation
+    const total = filtered.length;
+    const visible =
+      listShowAll || total <= LIST_PAGE_SIZE
+        ? filtered
+        : filtered.slice(0, LIST_PAGE_SIZE);
+
+    const cardsHtml = visible
       .map((s) => {
         const reach = isReachable(s);
         const reachLabel = reach
           ? `<span class="reach">in range</span>`
           : `<span class="reach no">beyond range</span>`;
 
-        // Unambiguous distance labels
-        let distBits = [];
-        if (s.routeProgressKm != null) {
-          distBits.push(
-            `<span class="dist" title="Distance into your trip along the route">~${s.routeProgressKm.toFixed(1)} km into trip</span>`
-          );
-        }
-        if (s.detourKm != null) {
-          const onWay = s.detourKm <= ON_ROUTE_DETOUR_MAX_KM;
-          distBits.push(
-            `<span class="${onWay ? "detour-ok" : "detour-far"}" title="How far off the road path this station is">~${s.detourKm.toFixed(1)} km off route</span>`
-          );
-        }
-        if (s.distanceKm != null && s.routeProgressKm == null) {
-          distBits.push(
-            `<span class="dist" title="Straight-line distance from your position">${s.distanceKm.toFixed(1)} km from you</span>`
-          );
-        }
+        // Always show all three distance fields (— when unavailable)
+        const fromYou =
+          s.distanceKm != null ? `${s.distanceKm.toFixed(1)} km from you` : "— from you";
+        const intoTrip =
+          s.routeProgressKm != null
+            ? `~${s.routeProgressKm.toFixed(1)} km into trip`
+            : "— into trip";
+        const detour =
+          s.detourKm != null
+            ? `~${s.detourKm.toFixed(1)} km off route`
+            : "— off route";
+        const onWay =
+          s.detourKm != null && s.detourKm <= ON_ROUTE_DETOUR_MAX_KM;
 
         const stale = isStale(s.dateLastVerified)
           ? `<span class="freshness">not recently verified</span>`
@@ -454,7 +481,9 @@
           <div class="station-card ${selectedId === s.id ? "active" : ""} ${reach ? "" : "out-of-range"}" data-id="${s.id}">
             <div class="name">${escapeHtml(s.name)}</div>
             <div class="meta">
-              ${distBits.join("")}
+              <span class="dist" title="Straight-line distance from your position">${fromYou}</span>
+              <span class="dist" title="Distance into your trip along the route">${intoTrip}</span>
+              <span class="${onWay ? "detour-ok" : "detour-far"}" title="How far off the road path this station is">${detour}</span>
               ${reachLabel}
               <span>${escapeHtml(status)}</span>
               ${types ? `<span>${escapeHtml(types)}</span>` : ""}
@@ -464,6 +493,15 @@
       })
       .join("");
 
+    let moreHtml = "";
+    if (!listShowAll && total > LIST_PAGE_SIZE) {
+      moreHtml = `<button type="button" class="btn-secondary show-more-btn" id="show-more-stations">Show all ${total} stations</button>`;
+    } else if (listShowAll && total > LIST_PAGE_SIZE) {
+      moreHtml = `<button type="button" class="btn-secondary show-more-btn" id="show-less-stations">Show fewer</button>`;
+    }
+
+    el.stationList.innerHTML = cardsHtml + moreHtml;
+
     el.stationList.querySelectorAll(".station-card").forEach((card) => {
       card.addEventListener("click", () => {
         const id = Number(card.dataset.id);
@@ -471,6 +509,22 @@
         if (st) selectStation(st);
       });
     });
+    const moreBtn = document.getElementById("show-more-stations");
+    if (moreBtn) {
+      moreBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        listShowAll = true;
+        renderStationList(stations, title);
+      });
+    }
+    const lessBtn = document.getElementById("show-less-stations");
+    if (lessBtn) {
+      lessBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        listShowAll = false;
+        renderStationList(stations, title);
+      });
+    }
   }
 
   function updateConnectorFilter(stations) {
@@ -609,6 +663,7 @@
       if (setAsCurrent) {
         currentStations = stations;
         routeStations = [];
+        listShowAll = false;
       } else {
         routeStations = stations;
       }
@@ -636,6 +691,24 @@
   // 3. Geocoding + Routing + along-route stations + charge plan
   // ---------------------------------------------------------------------------
   async function geocode(query) {
+    // Prefer MapTiler geocoding when a key is present; fall back to Nominatim
+    if (MAPTILER_API_KEY && MAPTILER_API_KEY.trim()) {
+      const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?key=${MAPTILER_API_KEY.trim()}&country=in&limit=5`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`MapTiler geocoding ${res.status}`);
+      const data = await res.json();
+      // Normalize to Nominatim-like shape: display_name, lat, lon
+      // MapTiler / GeoJSON center is [lng, lat]
+      return (data.features || []).map((f) => {
+        const center = f.center || (f.geometry && f.geometry.coordinates) || [0, 0];
+        return {
+          display_name: f.place_name || f.text || f.place_name_en || "Unknown place",
+          lat: center[1],
+          lon: center[0],
+        };
+      });
+    }
+
     const url = `${NOMINATIM}?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=in`;
     const res = await fetch(url, {
       headers: { "User-Agent": "ChargeAhead-WorkingModel/1.0" },
@@ -703,6 +776,9 @@
     }
     el.routeInfo.classList.add("hidden");
     el.chargePlan.classList.add("hidden");
+    if (el.aiPlan) el.aiPlan.classList.add("hidden");
+    lastDeterministicPlan = null;
+    listShowAll = false;
     el.destInput.value = "";
     if (userPos) {
       loadStationsAround(userPos, {
@@ -788,6 +864,7 @@
     alongRoute.forEach(addStationMarker);
 
     routeStations = alongRoute;
+    listShowAll = false;
     updateConnectorFilter(alongRoute);
     renderStationList(alongRoute, "Stations along this route");
 
@@ -894,18 +971,24 @@
   }
 
   /**
-   * Charge plan using route progress + detour, not straight-line distance from origin.
+   * Deterministic charge plan.
+   * Stop is recommended ONLY when tripKm + safetyMargin > remaining range.
+   * When no stop is needed, do not attach a recommended station to the verdict.
    */
   function updateChargePlan(route, stations) {
     const box = el.chargePlan;
     if (!route) {
       box.classList.add("hidden");
+      if (el.aiPlan) el.aiPlan.classList.add("hidden");
       return;
     }
 
     const rem = remainingRangeKm();
+    const margin = safetyMarginKm();
     const usable = usableRangeKm();
     const tripKm = route.distanceKm;
+    const spareKm = rem - tripKm;
+    const sparePct = fullRangeKm > 0 ? (spareKm / fullRangeKm) * 100 : 0;
 
     let candidates = stations.slice();
     if (activeFilter) {
@@ -916,54 +999,58 @@
 
     let cls = "ok";
     let html = `<h3>Charge plan</h3>`;
+    let plannedStops = []; // { station, offRoute }[]
+    let verdict = "no_stop";
 
     html += `<div class="plan-line">Trip distance (OSRM road): <strong>${tripKm.toFixed(1)} km</strong></div>`;
-    html += `<div class="plan-line">Your remaining range: <strong>${rem.toFixed(0)} km</strong> (usable ~${usable.toFixed(0)} km with ${Math.round(ARRIVAL_BUFFER_FRAC * 100)}% reserve)</div>`;
+    html += `<div class="plan-line">Remaining range: <strong>${rem.toFixed(0)} km</strong> · Safety reserve: <strong>${margin.toFixed(0)} km (${safetyPercent}%)</strong></div>`;
+    html += `<div class="plan-line">Usable without dipping into reserve: <strong>${usable.toFixed(0)} km</strong></div>`;
 
-    if (tripKm <= usable) {
+    // No stop needed: can complete trip AND keep the safety margin
+    if (tripKm + margin <= rem) {
       cls = "ok";
-      html += `<div class="plan-line"><strong>Direct drive is feasible</strong> with current charge (arrives with reserve).</div>`;
-      // Optional top-up: furthest on-route station still within usable range
-      const { station, offRoute } = pickBestStop(candidates, usable, true);
-      if (station) {
-        html += `<div class="plan-line">Optional top-up along the way: ${formatStopLabel(station, offRoute)}</div>`;
-      }
+      verdict = "no_stop";
+      html += `<div class="plan-line"><strong>No charging stop needed</strong> — you'll arrive with approximately <strong>${spareKm.toFixed(0)} km / ${sparePct.toFixed(0)}%</strong> to spare (above your ${safetyPercent}% reserve).</div>`;
+      html += `<div class="plan-line" style="color:var(--text-muted)">On-route stations below are optional reference only — not required for this trip.</div>`;
     } else {
-      // Need one or more stops
+      // A stop is required to keep the margin
       const stops = chainStops(candidates, tripKm, usable);
+      plannedStops = stops;
       if (!stops.length) {
         cls = "err";
-        html += `<div class="plan-line"><strong>Cannot complete trip on current charge</strong> — shortfall of ~${(tripKm - rem).toFixed(0)} km.</div>`;
-        // Show best off-route fallback if any exist at all within absolute range
+        verdict = "impossible";
+        html += `<div class="plan-line"><strong>Cannot complete trip within your safety reserve</strong> — shortfall of ~${(tripKm + margin - rem).toFixed(0)} km vs remaining charge.</div>`;
         const anyInAbsRange = candidates
-          .filter(
-            (s) =>
-              s.routeProgressKm != null && s.routeProgressKm <= rem
-          )
+          .filter((s) => s.routeProgressKm != null && s.routeProgressKm <= rem)
           .sort((a, b) => (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0));
         if (anyInAbsRange.length) {
           const s = anyInAbsRange[0];
-          const off = !(s.detourKm != null && s.detourKm <= ON_ROUTE_DETOUR_MAX_KM);
-          html += `<div class="plan-line">Nearest option: ${formatStopLabel(s, off)}</div>`;
+          const off = !(
+            s.detourKm != null && s.detourKm <= ON_ROUTE_DETOUR_MAX_KM
+          );
+          html += `<div class="plan-line">Nearest reachable option (may still break reserve): ${formatStopLabel(s, off)}</div>`;
         } else {
-          html += `<div class="plan-line">No reachable stations along this corridor for the selected charge type. Increase SoC or change filter.</div>`;
+          html += `<div class="plan-line">No reachable stations along this corridor for the selected charge type.</div>`;
         }
       } else {
         cls = tripKm <= rem ? "warn" : "err";
-        if (tripKm <= rem) {
-          html += `<div class="plan-line"><strong>Tight on charge</strong> — a stop is recommended to keep the reserve.</div>`;
-        } else {
-          html += `<div class="plan-line"><strong>Cannot complete trip without charging</strong> — shortfall of ~${(tripKm - rem).toFixed(0)} km.</div>`;
-        }
+        verdict = stops.length === 1 ? "one_stop" : "multi_stop";
+        html += `<div class="plan-line"><strong>Charging stop required</strong> to keep your ${safetyPercent}% / ${margin.toFixed(0)} km reserve along the trip.</div>`;
         stops.forEach((item, i) => {
-          html += `<div class="plan-line">Stop ${i + 1}: ${formatStopLabel(item.station, item.offRoute)}</div>`;
+          const s = item.station;
+          const progress = s.routeProgressKm ?? 0;
+          // Rough charge left on arrival at this stop (before recharge)
+          const chargeAtStopKm = Math.max(0, rem - progress);
+          const chargeAtStopPct =
+            fullRangeKm > 0 ? (chargeAtStopKm / fullRangeKm) * 100 : 0;
+          html += `<div class="plan-line">Stop ${i + 1}: ${formatStopLabel(s, item.offRoute)} — arrive with ~${chargeAtStopKm.toFixed(0)} km / ${chargeAtStopPct.toFixed(0)}% remaining</div>`;
         });
         const last = stops[stops.length - 1].station;
         const remainingAfter = tripKm - (last.routeProgressKm ?? 0);
         if (remainingAfter > usable) {
-          html += `<div class="plan-line">After stop ${stops.length}, ~${remainingAfter.toFixed(0)} km remain — raise SoC or find more stations; corridor may be sparse.</div>`;
+          html += `<div class="plan-line">After stop ${stops.length}, ~${remainingAfter.toFixed(0)} km remain and may still exceed usable range — corridor may be sparse.</div>`;
         } else {
-          html += `<div class="plan-line">After stop ${stops.length}, remaining ~${remainingAfter.toFixed(0)} km is within usable range.</div>`;
+          html += `<div class="plan-line">After stop ${stops.length}, remaining ~${remainingAfter.toFixed(0)} km fits within usable range + reserve.</div>`;
         }
       }
     }
@@ -972,11 +1059,173 @@
       html += `<div class="plan-line">Filter active: <strong>${escapeHtml(activeFilter)}</strong></div>`;
     }
 
-    html += `<div class="plan-line" style="margin-top:0.4rem;color:var(--text-muted);font-size:0.72rem">Stops ranked by distance <em>into the trip along the route</em>, not straight-line from your start. Detour ≤ ${ON_ROUTE_DETOUR_MAX_KM} km = on-route. Occupancy is not predicted.</div>`;
+    html += `<div class="plan-line" style="margin-top:0.4rem;color:var(--text-muted);font-size:0.72rem">Deterministic plan: real OSRM distance + your SoC/range/reserve + live OCM stations. Stops ranked by route progress; detour ≤ ${ON_ROUTE_DETOUR_MAX_KM} km = on-route. Occupancy not predicted.</div>`;
 
     box.className = "charge-plan " + cls;
     box.innerHTML = html;
     box.classList.remove("hidden");
+
+    lastDeterministicPlan = {
+      verdict,
+      plannedStops,
+      tripKm,
+      rem,
+      margin,
+      usable,
+      candidates,
+    };
+
+    // Kick off optional Groq narration (non-blocking)
+    requestGroqPlan(route, candidates, lastDeterministicPlan);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Optional Groq AI plan narration (never invents stations)
+  // ---------------------------------------------------------------------------
+  async function requestGroqPlan(route, candidates, detPlan) {
+    if (!el.aiPlan) return;
+    if (!GROQ_API_KEY || !GROQ_API_KEY.trim()) {
+      el.aiPlan.classList.add("hidden");
+      return;
+    }
+
+    el.aiPlan.className = "charge-plan ai-plan";
+    el.aiPlan.innerHTML = `<h3>AI-suggested plan <span class="ai-badge">loading…</span></h3><div class="plan-line">Asking Groq to reason over the real station list…</div>`;
+    el.aiPlan.classList.remove("hidden");
+
+    const payload = {
+      tripKm: route.distanceKm,
+      durationMin: route.durationMin,
+      remainingRangeKm: remainingRangeKm(),
+      usableRangeKm: usableRangeKm(),
+      safetyMarginKm: safetyMarginKm(),
+      safetyPercent,
+      verdictHint: detPlan.verdict,
+      stations: candidates.slice(0, 40).map((s) => ({
+        id: s.id,
+        name: s.name,
+        routeProgressKm:
+          s.routeProgressKm != null ? Number(s.routeProgressKm.toFixed(2)) : null,
+        detourKm: s.detourKm != null ? Number(s.detourKm.toFixed(2)) : null,
+        distanceKm: s.distanceKm != null ? Number(s.distanceKm.toFixed(2)) : null,
+        connectors: s.connections.map((c) => c.type).filter(Boolean),
+        status: s.status,
+      })),
+    };
+
+    try {
+      const res = await fetch(GROQ_CHAT, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${GROQ_API_KEY.trim()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          temperature: 0.2,
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are an EV trip assistant. You ONLY choose station IDs from the provided candidate list. Never invent stations, coordinates, or distances. Return JSON only.",
+            },
+            {
+              role: "user",
+              content: `Given this real trip data, decide ordered charging stops (if any) and explain briefly using only the provided numbers.
+
+Rules:
+- If remainingRangeKm >= tripKm + safetyMarginKm, recommendedStopIds must be [].
+- Otherwise pick stops only from stations[].id, preferring low detourKm and high routeProgressKm still reachable within usableRangeKm from the start (or from previous stop assuming a full recharge).
+- Do not invent IDs.
+
+Data:
+${JSON.stringify(payload)}
+
+Return JSON shape:
+{
+  "recommendedStopIds": [number],
+  "stops": [{ "id": number, "reason": string }],
+  "summary": string
+}`,
+            },
+          ],
+        }),
+      });
+
+      if (!res.ok) {
+        el.aiPlan.classList.add("hidden");
+        return;
+      }
+      const data = await res.json();
+      const content =
+        data.choices &&
+        data.choices[0] &&
+        data.choices[0].message &&
+        data.choices[0].message.content;
+      if (!content) {
+        el.aiPlan.classList.add("hidden");
+        return;
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        el.aiPlan.classList.add("hidden");
+        return;
+      }
+
+      const byId = new Map(candidates.map((s) => [s.id, s]));
+      const rawIds = Array.isArray(parsed.recommendedStopIds)
+        ? parsed.recommendedStopIds
+        : (parsed.stops || []).map((x) => x.id);
+      const validStops = [];
+      for (const id of rawIds) {
+        const st = byId.get(Number(id));
+        if (st) validStops.push(st);
+      }
+
+      // If LLM said no stops or all IDs invalid when det plan also says no stop — OK
+      // If all IDs invalid when stops were needed — hide AI box (use deterministic only)
+      if (!validStops.length && detPlan.verdict !== "no_stop" && detPlan.verdict !== "impossible") {
+        // try using reasons only if empty — fall back silently
+        el.aiPlan.classList.add("hidden");
+        return;
+      }
+
+      const reasonById = {};
+      (parsed.stops || []).forEach((x) => {
+        if (x && x.id != null) reasonById[Number(x.id)] = x.reason || "";
+      });
+
+      let html = `<h3>AI-suggested plan <span class="ai-badge">Groq</span></h3>`;
+      if (parsed.summary) {
+        html += `<div class="plan-line">${escapeHtml(parsed.summary)}</div>`;
+      }
+      if (!validStops.length) {
+        html += `<div class="plan-line"><strong>No stop required</strong> (AI agrees with the numbers you entered).</div>`;
+      } else {
+        validStops.forEach((s, i) => {
+          // Factual fields only from OCM object
+          const reason = reasonById[s.id]
+            ? escapeHtml(reasonById[s.id])
+            : "";
+          html += `<div class="plan-line">Stop ${i + 1}: ${formatStopLabel(
+            s,
+            !(s.detourKm != null && s.detourKm <= ON_ROUTE_DETOUR_MAX_KM)
+          )}${reason ? `<br><span style="color:var(--text-muted)">${reason}</span>` : ""}</div>`;
+        });
+      }
+      html += `<div class="plan-line" style="margin-top:0.35rem;color:var(--text-muted);font-size:0.72rem">Station facts (distances, connectors) come from Open Charge Map / OSRM — not from the model. Invalid model IDs were dropped.</div>`;
+
+      el.aiPlan.className = "charge-plan ai-plan ok";
+      el.aiPlan.innerHTML = html;
+      el.aiPlan.classList.remove("hidden");
+    } catch (err) {
+      console.warn("Groq plan failed:", err);
+      el.aiPlan.classList.add("hidden");
+    }
   }
 
   async function onDestinationSelected(item) {
@@ -1083,6 +1332,12 @@
       fullRangeKm = Number(el.fullRangeInput.value) || 1;
       updateRangeUI();
     });
+    if (el.safetyInput) {
+      el.safetyInput.addEventListener("input", () => {
+        safetyPercent = Number(el.safetyInput.value) || 0;
+        updateRangeUI();
+      });
+    }
 
     el.connectorFilter.addEventListener("change", () => {
       activeFilter = el.connectorFilter.value;
@@ -1098,6 +1353,7 @@
     // initial
     socPercent = Number(el.socInput.value) || 70;
     fullRangeKm = Number(el.fullRangeInput.value) || 350;
+    safetyPercent = el.safetyInput ? Number(el.safetyInput.value) || 20 : 20;
     updateRangeUI();
   }
 

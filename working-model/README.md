@@ -11,62 +11,58 @@ A small, self-contained **live-data** proof of the core ChargeAhead loop:
 
 ---
 
-## How to run
+## How to run (Vite)
 
-No build step required.
+This subproject uses **Vite** so `.env` keys can be inlined for the browser. From `working-model/`:
 
-### Option A — Open directly
 ```bash
-# Just open the file in a modern browser
-open index.html          # macOS
-xdg-open index.html      # Linux
-start index.html         # Windows
+cp .env.example .env   # then fill any free keys you have
+npm install
+npm run dev            # opens Vite dev server (usually http://localhost:5173)
 ```
 
-> Note: Some browsers restrict `file://` fetches. If geolocation or APIs fail, use Option B.
+Production-style static build:
 
-### Option B — Local static server (recommended)
 ```bash
-# From this folder:
-npx serve .
-# or
-python3 -m http.server 8080
+npm run build
+npm run preview
 ```
-Then open http://localhost:3000 (or 8080).
 
----
+### Environment variables (all optional)
 
-## Optional: Open Charge Map API key
+| Variable | Service | If blank |
+|----------|---------|----------|
+| `VITE_OCM_API_KEY` | Open Charge Map | Works keyless at low volume |
+| `VITE_GROQ_API_KEY` | Groq AI plan text | AI box skipped; deterministic plan still works |
+| `VITE_MAPTILER_API_KEY` | MapTiler map + geocoding | Map falls back to OSM raster tiles; search falls back to Nominatim |
 
-The app works without a key at low volume. If you hit rate limits:
+Free key sign-ups: [openchargemap.org](https://openchargemap.org), [console.groq.com](https://console.groq.com), [maptiler.com](https://maptiler.com). Check each provider’s current free-tier limits before a long demo.
 
-1. Register a free key at https://openchargemap.org  
-2. Open `app.js` and set:
-   ```js
-   const OCM_API_KEY = "your-key-here";
-   ```
+**Do not commit `.env`** — only `.env.example` is in the repo. Client-side keys are fine for a judged demo, not for production.
 
-No other keys are required. All services used are free-tier / public:
+### Services used
 
-| Service            | Purpose                  | Auth                          |
-|--------------------|--------------------------|-------------------------------|
-| Browser Geolocation| User GPS                 | Permission prompt             |
-| OpenStreetMap tiles| Map background           | None                          |
-| Open Charge Map    | Charging stations        | Optional free key             |
-| Nominatim          | Place search / geocoding | User-Agent required (sent)    |
-| OSRM public        | Driving routes           | None                          |
+| Service | Purpose | Auth |
+|---------|---------|------|
+| Browser Geolocation | User GPS | Permission prompt |
+| MapTiler (optional) | Vector map style + place search | Free key |
+| OpenStreetMap tiles | Map fallback | None |
+| Nominatim | Place search fallback | User-Agent |
+| Open Charge Map | Charging stations | Optional free key |
+| OSRM public | Driving routes | None |
+| Groq (optional) | Plan narration | Free key |
 
 ---
 
 ## What is real (live data)
 
 - **User location** — `navigator.geolocation.getCurrentPosition`. If denied or unavailable, the map centers on a fixed Bengaluru coordinate and the UI clearly labels it as a **default location**, not real GPS.
-- **Map** — MapLibre GL + free OSM raster tiles.
+- **Map** — MapLibre GL with MapTiler streets style when `VITE_MAPTILER_API_KEY` is set; otherwise free OSM raster tiles.
 - **Stations** — Every marker and list item comes from a live Open Charge Map `/v3/poi/` response at runtime. No seeded or fallback station list.
 - **Station details** — Only fields present in the OCM response are shown: Title, address, operator, StatusType, DateLastVerified, Connections (type + power kW).  
   Live availability, queue length, and any “confidence %” are **not** invented; the UI states that OCM does not provide them.
 - **Distance sorting** — Real Haversine distance from the user’s actual (or labeled-fallback) position.
-- **Destination search** — Nominatim with India bias + 400 ms debounce (respects 1 req/s).
+- **Destination search** — MapTiler Geocoding (India) when keyed; otherwise Nominatim with 400 ms debounce.
 - **Road route** — OSRM public instance returns real geometry, distance (km) and duration (min). Polyline is drawn on the map.
 - **Stations along the route** — After routing, several points are sampled along the OSRM polyline. Open Charge Map is queried near each sample (corridor radius ~8 km). Results are merged, de-duplicated, filtered to stations actually near the path, and shown as “Stations along this route”. This is a simple real-data corridor filter — not claimed as an optimal stop-planning algorithm.
 
@@ -93,6 +89,13 @@ No other keys are required. All services used are free-tier / public:
 - Each corridor station stores **detourKm** (how far off the OSRM path) and **routeProgressKm** (how far into the trip along the path).
 - Charge-plan recommendations prefer stations with detour ≤ 5 km and the **highest route progress still within usable range** — not the station closest to your start by straight line.
 - Station list is ordered by route progress (order you’d pass them) and shows “km into trip” + “km off route” labels.
+
+
+### Safety reserve & AI plan
+
+- **Safety reserve %** (default 20%) is user-editable. A stop is recommended only when trip distance + reserve exceeds remaining range. Comfortable short trips show **No charging stop needed** with spare km/% — no forced end-of-trip stop.
+- Optional **Groq** narration (`GROQ_API_KEY` in `app.js`, free at console.groq.com). Deterministic plan always shows first; AI box updates when available. Station IDs from the model are validated against the real OCM list; factual fields never come from the LLM.
+- **Client-side Groq key exposure** is acceptable for a judged demo only — not production-ready.
 
 ## Explicit non-features (intentionally omitted)
 

@@ -103,7 +103,29 @@ html, body {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Bounded by .main flex height so overflow-y can scroll */
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--bg);
+}
+
+.sidebar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: var(--surface-2);
 }
 
 .panel {
@@ -577,4 +599,27 @@ html, body {
   font-style: italic;
   color: var(--warn);
   font-weight: 500;
+}
+
+.ai-plan {
+  border-style: dashed;
+  margin-top: 0.5rem;
+}
+
+.ai-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  background: #7c3aed;
+  color: #fff;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  margin-left: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+
+.show-more-btn {
+  margin: 0.5rem 0.25rem 0.25rem;
+  width: calc(100% - 0.5rem);
 }
