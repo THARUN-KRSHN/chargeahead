@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ChargeAhead — Real Working Model</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <h1>ChargeAhead <span class="badge">Real Working Model</span></h1>
+        <p class="subtitle">Live data only · Open Charge Map + OSRM + Nominatim + OSM</p>
+      </div>
+      <div class="header-right">
+        <div id="location-status" class="status-pill">Locating…</div>
+      </div>
+    </header>
+
+    <!-- Main layout -->
+    <div class="main">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <!-- Search -->
+        <section class="panel">
+          <h2>Destination</h2>
+          <div class="search-wrap">
+            <input
+              id="dest-input"
+              type="text"
+              placeholder="Search place in India (e.g. Mysuru, Connaught Place)…"
+              autocomplete="off"
+            />
+            <ul id="suggestions" class="suggestions hidden"></ul>
+          </div>
+          <div id="route-info" class="route-info hidden">
+            <div class="route-stats">
+              <span id="route-distance">—</span>
+              <span id="route-duration">—</span>
+            </div>
+            <button id="clear-route" class="btn-secondary">Clear route</button>
+          </div>
+        </section>
+
+        <!-- Optional filter: connector type (derived from real data) -->
+        <section class="panel" id="filter-panel">
+          <h2>Filter by connector</h2>
+          <select id="connector-filter">
+            <option value="">All connectors (from live results)</option>
+          </select>
+          <p class="hint">Options are built only from connectors actually returned by Open Charge Map for the current stations.</p>
+        </section>
+
+        <!-- Station list -->
+        <section class="panel list-panel">
+          <div class="list-header">
+            <h2 id="list-title">Nearby stations</h2>
+            <span id="station-count" class="count">0</span>
+          </div>
+          <div id="station-list" class="station-list">
+            <div class="empty-state">Waiting for location…</div>
+          </div>
+        </section>
+      </aside>
+
+      <!-- Map -->
+      <div class="map-wrap">
+        <div id="map"></div>
+        <div id="map-message" class="map-message hidden"></div>
+      </div>
+    </div>
+
+    <!-- Detail drawer -->
+    <div id="detail-drawer" class="drawer hidden">
+      <button id="close-drawer" class="drawer-close" aria-label="Close">×</button>
+      <div id="detail-content"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
