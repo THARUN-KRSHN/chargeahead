@@ -5,12 +5,13 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion } from 'framer-motion';
-import { Eye, EyeOff, Zap, ArrowRight, Globe, Check } from 'lucide-react';
+import { Eye, EyeOff, Zap, ArrowRight, Globe, Check, Car, Building2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/store/authStore';
 import { mockSignup } from '@/lib/mock/api';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 const schema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -23,6 +24,7 @@ type FormData = z.infer<typeof schema>;
 export default function SignupPage() {
   const router = useRouter();
   const { login } = useAuthStore();
+  const [role, setRole] = useState<'driver' | 'operator'>('driver');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -38,9 +40,14 @@ export default function SignupPage() {
     setLoading(true);
     try {
       const user = await mockSignup({ ...data, confirmPassword: data.password });
+      user.role = role;
       login(user);
-      toast.success('Account created! Please verify your phone number ⚡');
-      router.replace('/verify');
+      toast.success(`Account created as ${role === 'operator' ? 'Station Operator' : 'EV Driver'}! ⚡`);
+      if (role === 'operator') {
+        router.replace('/operator');
+      } else {
+        router.replace('/verify');
+      }
     } catch (err: any) {
       toast.error(err.message ?? 'Registration failed.');
     } finally {
@@ -52,9 +59,14 @@ export default function SignupPage() {
     setLoading(true);
     await new Promise((r) => setTimeout(r, 1000));
     const { MOCK_USER } = await import('@/lib/mock/users');
-    login(MOCK_USER);
+    const user = { ...MOCK_USER, role };
+    login(user);
     toast.success('Signed in with Google ⚡');
-    router.replace('/onboarding/vehicle');
+    if (role === 'operator') {
+      router.replace('/operator');
+    } else {
+      router.replace('/app/home');
+    }
   };
 
   return (
@@ -62,22 +74,52 @@ export default function SignupPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-sm space-y-6"
+        className="w-full max-w-sm space-y-5"
       >
+        {/* Back link */}
+        <Link href="/" className="inline-flex items-center gap-1.5 text-xs font-extrabold text-gray-500 hover:text-black transition-colors">
+          <ArrowLeft className="w-4 h-4" /> Back to Website
+        </Link>
         <div className="flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-2xl bg-black flex items-center justify-center mb-4 shadow-md">
+          <div className="w-14 h-14 rounded-2xl bg-black flex items-center justify-center mb-3 shadow-md">
             <Zap className="w-7 h-7 text-white" />
           </div>
           <h1 className="text-3xl font-extrabold text-black tracking-tight">Create Account</h1>
           <p className="text-gray-500 text-sm font-medium mt-1">Join ChargeAhead intelligent EV network</p>
         </div>
 
+        {/* Role Selector */}
+        <div className="flex bg-gray-100 p-1.5 rounded-2xl border border-gray-200 shadow-inner">
+          <button
+            type="button"
+            onClick={() => setRole('driver')}
+            className={cn(
+              'flex-1 py-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all',
+              role === 'driver' ? 'bg-black text-white shadow-md' : 'text-gray-600 hover:text-black'
+            )}
+          >
+            <Car className="w-4 h-4" /> EV Driver
+          </button>
+          <button
+            type="button"
+            onClick={() => setRole('operator')}
+            className={cn(
+              'flex-1 py-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all',
+              role === 'operator' ? 'bg-black text-white shadow-md' : 'text-gray-600 hover:text-black'
+            )}
+          >
+            <Building2 className="w-4 h-4" /> Station Operator
+          </button>
+        </div>
+
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3.5">
           <div>
-            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Full Name</label>
+            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+              {role === 'operator' ? 'Company / Operator Name' : 'Full Name'}
+            </label>
             <input
               type="text"
-              placeholder="Tharun Krishna"
+              placeholder={role === 'operator' ? 'Zeon Charging Pvt Ltd' : 'Tharun Krishna'}
               {...register('name')}
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-black placeholder:text-gray-400 focus:outline-none focus:border-black focus:bg-white transition-all font-medium"
             />
@@ -88,7 +130,7 @@ export default function SignupPage() {
             <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Email Address</label>
             <input
               type="email"
-              placeholder="driver@chargeahead.in"
+              placeholder={role === 'operator' ? 'operator@chargeahead.in' : 'driver@chargeahead.in'}
               {...register('email')}
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-black placeholder:text-gray-400 focus:outline-none focus:border-black focus:bg-white transition-all font-medium"
             />
@@ -146,7 +188,7 @@ export default function SignupPage() {
               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
               <>
-                Create Account <ArrowRight className="w-4 h-4" />
+                Register as {role === 'operator' ? 'Operator' : 'Driver'} <ArrowRight className="w-4 h-4" />
               </>
             )}
           </motion.button>

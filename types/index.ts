@@ -81,6 +81,8 @@ export interface ChargerPort {
   status: StationStatus;
   pricePerKwh: number; // in INR
   sessionFee?: number; // flat session fee in INR
+  bayLocation?: string; // e.g. "Bay A1 (Ground Floor - North Canopy)"
+  landmarkNote?: string; // e.g. "Near Highway Service Plaza Entrance & Restrooms"
 }
 
 // ---- Charging Station ----

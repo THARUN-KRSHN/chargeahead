@@ -152,7 +152,9 @@ export default function BookingDetailPage() {
           {[
             { label: 'Date', value: format(startDate, 'EEEE, dd MMMM yyyy'), icon: Calendar },
             { label: 'Time', value: `${format(startDate, 'h:mm a')} – ${format(endDate, 'h:mm a')}`, icon: Clock },
-            { label: 'Charger', value: `${booking.port.connectorType} · ${booking.port.speedKw} kW`, icon: Zap },
+            { label: 'Charger Spec', value: `${booking.port.connectorType} · ${booking.port.speedKw} kW`, icon: Zap },
+            { label: 'Bay Location', value: booking.port.bayLocation ?? 'Bay 1 (Ground Floor)', icon: MapPin },
+            { label: 'Landmark', value: booking.port.landmarkNote ?? 'Main Plaza Entrance', icon: MapPin },
             { label: 'Vehicle', value: booking.vehicle.nickname ?? booking.vehicle.evModel.model, icon: null },
           ].map(({ label, value, icon: Icon }) => (
             <div key={label} className="flex items-center justify-between">
@@ -160,7 +162,7 @@ export default function BookingDetailPage() {
                 {Icon && <Icon className="w-3.5 h-3.5 text-gray-400" />}
                 {label}
               </span>
-              <span className="text-sm font-bold text-black">{value}</span>
+              <span className="text-sm font-bold text-black text-right">{value}</span>
             </div>
           ))}
         </div>
@@ -192,7 +194,7 @@ export default function BookingDetailPage() {
         {/* Actions */}
         <div className="space-y-2">
           {isUpcoming && (
-            <Link href="/app/trip/active" className="block">
+            <Link href={`/app/trip/active?bookingId=${booking.id}`} className="block">
               <button className="w-full py-4 rounded-xl bg-black text-white font-extrabold text-sm hover:bg-gray-900 transition-all shadow-md">
                 Navigate to Station
               </button>

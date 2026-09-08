@@ -85,10 +85,43 @@ export const MOCK_BOOKINGS: Booking[] = [
   },
 ];
 
+export const DYNAMIC_BOOKINGS: Booking[] = [];
+
+export function saveDynamicBooking(booking: Booking): void {
+  DYNAMIC_BOOKINGS.unshift(booking);
+}
+
 export function getBookingById(id: string): Booking | undefined {
-  return MOCK_BOOKINGS.find((b) => b.id === id);
+  const existing = MOCK_BOOKINGS.find((b) => b.id === id) || DYNAMIC_BOOKINGS.find((b) => b.id === id);
+  if (existing) return existing;
+
+  if (id.startsWith('bk-')) {
+    const fallbackBooking: Booking = {
+      id,
+      userId: 'user-001',
+      stationId: s001.id,
+      station: s001,
+      portId: s001.ports[0].id,
+      port: s001.ports[0],
+      status: 'upcoming',
+      startTime: new Date().toISOString(),
+      endTime: new Date(Date.now() + 60 * 60000).toISOString(),
+      qrCode: `CHRG-${id.replace('bk-', '').toUpperCase()}-QR`,
+      checkInCode: 'CA' + Math.floor(1000 + Math.random() * 9000),
+      estimatedCostInr: 284,
+      paymentStatus: 'paid',
+      createdAt: new Date().toISOString(),
+      vehicleId: v001.id,
+      vehicle: v001,
+    };
+    DYNAMIC_BOOKINGS.push(fallbackBooking);
+    return fallbackBooking;
+  }
+
+  return undefined;
 }
 
 export function getBookingsByStatus(status: BookingStatus): Booking[] {
-  return MOCK_BOOKINGS.filter((b) => b.status === status);
+  const all = [...DYNAMIC_BOOKINGS, ...MOCK_BOOKINGS];
+  return all.filter((b) => b.status === status);
 }

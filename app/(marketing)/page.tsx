@@ -50,10 +50,10 @@ export default function MarketingLandingPage() {
           className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4"
         >
           <Link
-            href="/app/home"
+            href="/login"
             className="w-full sm:w-auto px-8 py-4 rounded-xl bg-black text-white font-extrabold text-base shadow-md hover:bg-gray-900 transition-all flex items-center justify-center gap-2"
           >
-            Launch Interactive Demo <ArrowRight className="w-5 h-5" />
+            Sign In to Access Navigation <ArrowRight className="w-5 h-5" />
           </Link>
 
           <Link
@@ -207,13 +207,13 @@ export default function MarketingLandingPage() {
         <div className="bg-black rounded-3xl p-10 text-center text-white space-y-6 relative overflow-hidden shadow-2xl">
           <h2 className="text-3xl font-extrabold text-white">Ready for worry-free EV road trips?</h2>
           <p className="text-sm text-gray-300 font-medium max-w-xl mx-auto">
-            Experience the complete clickable prototype now — explore live stations, simulate long-distance trip rerouting, and test port reservations.
+            Sign in to explore live stations, plan long-distance EV trips with AI predictive rerouting, and reserve charging ports.
           </p>
           <Link
-            href="/app/home"
+            href="/login"
             className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-white text-black font-extrabold text-base shadow-md hover:bg-gray-100 transition-all"
           >
-            Launch Web App Demo <ArrowRight className="w-5 h-5" />
+            Sign In to Access Navigation <ArrowRight className="w-5 h-5" />
           </Link>
         </div>
       </section>

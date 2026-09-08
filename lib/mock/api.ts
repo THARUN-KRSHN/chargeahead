@@ -26,7 +26,7 @@ import type {
 import { MOCK_STATIONS, getNearbyStations, getStationById } from './stations';
 import { MOCK_USER, MOCK_OPERATOR_USER, MOCK_VEHICLES, MOCK_PAYMENT_METHODS } from './users';
 import { EV_MODELS, getEvModelById } from './vehicles';
-import { MOCK_BOOKINGS, getBookingById } from './bookings';
+import { MOCK_BOOKINGS, DYNAMIC_BOOKINGS, getBookingById, saveDynamicBooking } from './bookings';
 import { MOCK_TRIPS, getTripById } from './trips';
 import { MOCK_TRANSACTIONS, getTransactionById } from './transactions';
 import { MOCK_REPORTS, getReportsByStation } from './reports';
@@ -111,12 +111,14 @@ export async function fetchNearbyStations(limit = 12, lat = 12.9716, lng = 77.59
 export async function fetchStationById(id: string): Promise<ChargingStation> {
   await mockDelay(200, 500);
   if (id.startsWith('ocm-')) {
-    const ocmStation = await fetchOCMStationById(id);
-    if (ocmStation) return ocmStation;
+    try {
+      const ocmStation = await fetchOCMStationById(id);
+      if (ocmStation) return ocmStation;
+    } catch (err) {
+      console.warn('Failed to fetch OCM station by ID, falling back:', err);
+    }
   }
-  const station = getStationById(id);
-  if (!station) throw new Error(`Station ${id} not found`);
-  return station;
+  return getStationById(id);
 }
 
 export async function searchStations(query: string): Promise<ChargingStation[]> {
@@ -218,7 +220,7 @@ export async function removeVehicle(vehicleId: string): Promise<void> {
 
 export async function fetchUserBookings(): Promise<Booking[]> {
   await mockDelay(400, 700);
-  return MOCK_BOOKINGS;
+  return [...DYNAMIC_BOOKINGS, ...MOCK_BOOKINGS];
 }
 
 export async function fetchBookingById(id: string): Promise<Booking> {
@@ -228,28 +230,41 @@ export async function fetchBookingById(id: string): Promise<Booking> {
   return booking;
 }
 
-export async function createBooking(data: BookingFormData): Promise<Booking> {
+export async function createBooking(data: BookingFormData & { stationId?: string; estimatedCostInr?: number }): Promise<Booking> {
   await mockDelay(600, 1200);
   if (randomFail(0.05)) throw new Error('Booking failed. Please try again.');
-  const station = getStationById(data.portId.split('-')[0]) ?? MOCK_STATIONS[0];
-  return {
+  
+  let station: ChargingStation | undefined;
+  if (data.stationId) {
+    station = getStationById(data.stationId);
+  }
+  if (!station) {
+    station = getStationById(data.portId.split('-')[0]) || MOCK_STATIONS[0];
+  }
+
+  const port = station.ports.find((p) => p.id === data.portId) || station.ports[0];
+
+  const newBooking: Booking = {
     id: `bk-${Date.now()}`,
     userId: 'user-001',
     stationId: station.id,
     station,
-    portId: data.portId,
-    port: station.ports[0],
+    portId: port.id,
+    port,
     status: 'upcoming',
     startTime: data.startTime,
     endTime: data.endTime,
     qrCode: `CHRG-${Date.now()}-QR`,
     checkInCode: Math.random().toString(36).slice(2, 8).toUpperCase(),
-    estimatedCostInr: Math.round(Math.random() * 300 + 100),
+    estimatedCostInr: data.estimatedCostInr ?? Math.round(Math.random() * 300 + 100),
     paymentStatus: 'paid',
     createdAt: new Date().toISOString(),
     vehicleId: data.vehicleId,
     vehicle: MOCK_VEHICLES[0],
   };
+
+  saveDynamicBooking(newBooking);
+  return newBooking;
 }
 
 export async function cancelBooking(bookingId: string): Promise<void> {

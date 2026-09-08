@@ -134,7 +134,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
         {/* Start / Relaunch navigation */}
         {!isCompleted && (
           <Link
-            href="/app/trip/active"
+            href={`/app/trip/active?tripId=${trip.id}`}
             className="block w-full text-center py-4 rounded-xl bg-black text-white font-extrabold text-base shadow-md hover:bg-gray-900 transition-all"
           >
             Launch Active Navigation Mode ⚡

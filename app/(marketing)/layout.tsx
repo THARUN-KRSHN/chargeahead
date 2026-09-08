@@ -33,15 +33,9 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
         <div className="hidden md:flex items-center gap-3">
           <Link
             href="/login"
-            className="px-4 py-2 rounded-xl text-sm font-bold text-gray-800 hover:text-black transition-colors"
+            className="px-6 py-2.5 rounded-xl bg-black text-white text-sm font-extrabold shadow-md hover:bg-gray-900 transition-all flex items-center gap-2"
           >
-            Sign In
-          </Link>
-          <Link
-            href="/app/home"
-            className="px-5 py-2.5 rounded-xl bg-black text-white text-sm font-extrabold shadow-md hover:bg-gray-900 transition-all flex items-center gap-1.5"
-          >
-            Launch Web App <ArrowRight className="w-4 h-4" />
+            Sign In <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
 
@@ -68,8 +62,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
             <Link href="/about" onClick={() => setMobileNavOpen(false)} className="block text-base font-bold text-black">About Us</Link>
             <Link href="/faq" onClick={() => setMobileNavOpen(false)} className="block text-base font-bold text-black">FAQ</Link>
             <div className="pt-4 border-t border-gray-200 flex flex-col gap-3">
-              <Link href="/login" onClick={() => setMobileNavOpen(false)} className="text-center py-3 text-sm font-bold text-black border border-gray-300 rounded-xl">Sign In</Link>
-              <Link href="/app/home" onClick={() => setMobileNavOpen(false)} className="text-center py-3 bg-black text-white text-sm font-extrabold rounded-xl shadow-md">Launch Web App →</Link>
+              <Link href="/login" onClick={() => setMobileNavOpen(false)} className="text-center py-3.5 bg-black text-white text-sm font-extrabold rounded-xl shadow-md">Sign In to Navigation UI →</Link>
             </div>
           </motion.div>
         )}

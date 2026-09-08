@@ -196,7 +196,7 @@ export default function StationDetailPage() {
               </button>
             </Link>
           )}
-          <Link href="/app/trip/active" className="flex-1">
+          <Link href={`/app/trip/active?stationId=${station.id}`} className="flex-1">
             <button className={cn('w-full py-3.5 rounded-xl font-extrabold text-sm transition-all', station.isReservable ? 'border border-gray-300 text-black hover:bg-gray-50' : 'bg-black text-white hover:bg-gray-900 shadow-md')}>
               Navigate
             </button>

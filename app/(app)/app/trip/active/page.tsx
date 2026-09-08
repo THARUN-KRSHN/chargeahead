@@ -1,72 +1,212 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useRouter } from 'next/navigation';
-import { MapPin, Zap, AlertTriangle, Battery, Clock, CheckCircle2, RotateCcw } from 'lucide-react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
+import { motion } from 'framer-motion';
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  MapPin,
+  Zap,
+  Battery,
+  Clock,
+  CheckCircle2,
+  Volume2,
+  VolumeX,
+  MessageSquare,
+  CornerUpRight,
+  Navigation,
+  LocateFixed,
+  ChevronLeft,
+} from 'lucide-react';
 import { MapComponent } from '@/components/shared/MapComponent';
 import { ChargingProgressBar } from '@/components/shared/ChargingProgressBar';
+import { ReportIssueSheet } from '@/components/shared/ReportIssueSheet';
 import { useTripStore } from '@/lib/store/tripStore';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
+import { useReportStore } from '@/lib/services/reportStore';
 import { useMockLiveUpdates } from '@/hooks/useMockLiveUpdates';
+import { speakText, stopSpeaking } from '@/lib/utils/voiceAssistant';
 import { MOCK_TRIPS } from '@/lib/mock/trips';
-import { MOCK_STATIONS } from '@/lib/mock/stations';
+import { ENROUTE_FALLBACK_STATIONS } from '@/lib/api/geminiRoutePlanner';
 import { startChargingSession, stopChargingSession } from '@/lib/mock/api';
+import { getBookingById, DYNAMIC_BOOKINGS } from '@/lib/mock/bookings';
+import { getStationById } from '@/lib/mock/stations';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import type { LatLng, ChargingStation } from '@/types';
 
 type TripPhase = 'driving' | 'arriving' | 'charging' | 'complete';
 
-export default function ActiveTripPage() {
+// Interpolate smooth dense waypoints along route
+function generateSmoothWaypoints(origin: LatLng, destination: LatLng, totalSteps = 60): LatLng[] {
+  const points: LatLng[] = [];
+  // Midpoint curve offset to simulate real road curvature
+  const midLat = (origin.lat + destination.lat) / 2 + 0.005;
+  const midLng = (origin.lng + destination.lng) / 2 + 0.005;
+
+  for (let i = 0; i <= totalSteps; i++) {
+    const t = i / totalSteps;
+    // Quadratic Bezier interpolation for natural road bend
+    const lat = (1 - t) * (1 - t) * origin.lat + 2 * (1 - t) * t * midLat + t * t * destination.lat;
+    const lng = (1 - t) * (1 - t) * origin.lng + 2 * (1 - t) * t * midLng + t * t * destination.lng;
+    points.push({ lat, lng });
+  }
+  return points;
+}
+
+function ActiveTripContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const bookingId = searchParams.get('bookingId');
+  const stationId = searchParams.get('stationId');
+
   const { activeVehicle } = useVehicleStore();
-  const { rerouteAlert, acceptReroute, dismissReroute } = useTripStore();
+  const { activeTrip } = useTripStore();
+  const computeConfidenceScore = useReportStore((state) => state.computeConfidenceScore);
+
   const [phase, setPhase] = useState<TripPhase>('driving');
   const [chargePercent, setChargePercent] = useState(activeVehicle?.currentChargePercent ?? 68);
   const [energyKwh, setEnergyKwh] = useState(0);
   const [costAccrued, setCostAccrued] = useState(0);
-  const [timeRemaining, setTimeRemaining] = useState(42);
+  const [timeRemaining, setTimeRemaining] = useState(35);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [loadingSession, setLoadingSession] = useState(false);
   const [tripComplete, setTripComplete] = useState(false);
 
-  // Load demo trip
-  const trip = MOCK_TRIPS[0];
-  const nextStop = trip.stops[0];
-  const alternativeStation = MOCK_STATIONS[2]; // Ather Grid as alt
+  // Voice Assistant & Community Report states
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [reportSheetOpen, setReportSheetOpen] = useState(false);
+  const [followVehicle, setFollowVehicle] = useState(true);
 
-  // Enable live updates with reroute scripted event
-  useMockLiveUpdates({ enableReroute: true });
+  // Dynamic target station resolution based on URL params / activeTrip / DYNAMIC_BOOKINGS
+  const targetStation: ChargingStation = useMemo(() => {
+    if (bookingId) {
+      const booking = getBookingById(bookingId);
+      if (booking?.station) return booking.station;
+    }
+    if (stationId) {
+      const station = getStationById(stationId);
+      if (station) return station;
+    }
+    if (activeTrip?.stops?.[0]?.station) {
+      return activeTrip.stops[0].station;
+    }
+    if (DYNAMIC_BOOKINGS.length > 0 && DYNAMIC_BOOKINGS[0].station) {
+      return DYNAMIC_BOOKINGS[0].station;
+    }
+    return (
+      ENROUTE_FALLBACK_STATIONS.find((s) => s.id === 'st-zeon-edappal') ||
+      MOCK_TRIPS[0].stops[0].station
+    );
+  }, [bookingId, stationId, activeTrip]);
 
-  // Simulate driving → arriving after 8s
+  // Destination coordinates
+  const destCoords: LatLng = useMemo(
+    () => targetStation.coordinates || { lat: 10.7672, lng: 76.0022 },
+    [targetStation.coordinates]
+  );
+
+  // Origin coordinates: active trip origin OR ~5km offset from target station
+  const originCoords: LatLng = useMemo(() => {
+    if (activeTrip?.origin?.coordinates) return activeTrip.origin.coordinates;
+    return {
+      lat: targetStation.coordinates.lat + 0.035,
+      lng: targetStation.coordinates.lng + 0.025,
+    };
+  }, [activeTrip?.origin?.coordinates, targetStation.coordinates.lat, targetStation.coordinates.lng]);
+
+  // Generate smooth waypoints
+  const waypoints = useMemo(() => {
+    return generateSmoothWaypoints(originCoords, destCoords, 50);
+  }, [originCoords.lat, originCoords.lng, destCoords.lat, destCoords.lng]);
+
+  // Animated vehicle position along the route during driving phase
+  const [stepIndex, setStepIndex] = useState(0);
+  const currentPos = waypoints[stepIndex] || waypoints[0];
+
+  const progressFraction = stepIndex / (waypoints.length - 1 || 1);
+  const distanceRemainingKm = Math.max(0.2, parseFloat(((1 - progressFraction) * 6.4).toFixed(1)));
+  const etaMinutesRemaining = Math.max(1, Math.round((1 - progressFraction) * 9));
+
+  // Dynamic Turn-by-Turn Instruction based on progress
+  const currentInstruction = useMemo(() => {
+    if (phase !== 'driving') return `Arrived at ${targetStation.name}`;
+    if (progressFraction < 0.3) {
+      return `Head south towards ${targetStation.name}`;
+    } else if (progressFraction < 0.7) {
+      return `In 600m, turn right onto Station Service Lane`;
+    } else if (progressFraction < 0.95) {
+      return `In 200m, enter ${targetStation.name} · Bay 1`;
+    } else {
+      return `Arriving at ${targetStation.name}`;
+    }
+  }, [phase, progressFraction, targetStation.name]);
+
+  // Voice Guidance Trigger on major instruction changes
   useEffect(() => {
-    const t = setTimeout(() => setPhase('arriving'), 8000);
-    return () => clearTimeout(t);
-  }, []);
+    if (voiceEnabled && phase === 'driving' && stepIndex % 12 === 0) {
+      speakText(`${currentInstruction}. Battery level ${Math.round(chargePercent)} percent.`, true);
+    }
+  }, [stepIndex, phase, voiceEnabled, currentInstruction, chargePercent]);
+
+  const toggleVoice = () => {
+    if (voiceEnabled) {
+      stopSpeaking();
+      setVoiceEnabled(false);
+      toast.info('🔊 Voice Assistant Muted');
+    } else {
+      setVoiceEnabled(true);
+      toast.success('🔊 Voice Assistant Enabled');
+      speakText(`Voice navigation active. Driving towards ${targetStation.name}`, true);
+    }
+  };
+
+  // Move vehicle smoothly along waypoints during driving phase
+  useEffect(() => {
+    if (phase !== 'driving') return;
+    const timer = setInterval(() => {
+      setStepIndex((prev) => {
+        if (prev < waypoints.length - 1) {
+          // Slowly decrease battery as driving occurs
+          if (prev % 15 === 0) setChargePercent((b) => Math.max(20, b - 1));
+          return prev + 1;
+        }
+        setPhase('arriving');
+        return prev;
+      });
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [phase, waypoints.length]);
+
+  // Enable live mock updates
+  useMockLiveUpdates({ enableReroute: false });
 
   // Simulate charging progress when session active
   useEffect(() => {
     if (phase !== 'charging') return;
     const interval = setInterval(() => {
       setChargePercent((p) => {
-        const next = Math.min(p + 0.6, 80);
-        if (next >= 80) { clearInterval(interval); setPhase('complete'); }
+        const next = Math.min(p + 0.8, 80);
+        if (next >= 80) {
+          clearInterval(interval);
+          setPhase('complete');
+        }
         return next;
       });
-      setEnergyKwh((e) => parseFloat((e + 0.14).toFixed(2)));
-      setCostAccrued((c) => parseFloat((c + 2.0).toFixed(2)));
+      setEnergyKwh((e) => parseFloat((e + 0.18).toFixed(2)));
+      setCostAccrued((c) => parseFloat((c + 3.2).toFixed(2)));
       setTimeRemaining((t) => Math.max(0, t - 1));
-    }, 2000);
+    }, 1800);
     return () => clearInterval(interval);
   }, [phase]);
 
   const handleStartCharging = async () => {
     setLoadingSession(true);
     try {
-      const session = await startChargingSession('bk-001', 'p001-1');
+      const session = await startChargingSession(bookingId ?? 'bk-001', targetStation.ports[0]?.id ?? 'p-ze1');
       setSessionId(session.id);
       setPhase('charging');
-      toast.success('⚡ Charging started!');
+      if (voiceEnabled) speakText(`Charging started at ${targetStation.name}.`, true);
+      toast.success('⚡ Charging session started!');
     } catch {
       toast.error('Failed to start session. Please retry.');
     } finally {
@@ -86,18 +226,13 @@ export default function ActiveTripPage() {
   };
 
   const handleEndTrip = () => {
+    stopSpeaking();
     setTripComplete(true);
-    toast.success('🎉 Trip complete! ChargeAhead saved you 18 min of wait time.');
-    setTimeout(() => router.push('/app/trips'), 2500);
+    toast.success('🎉 Navigation complete! You have reached your destination.');
+    setTimeout(() => router.push('/app/bookings'), 2500);
   };
 
-  const route = [
-    { lat: 12.9116, lng: 77.6389 },
-    { lat: 12.9200, lng: 77.6300 },
-    { lat: 12.9352, lng: 77.6245 },
-    { lat: 12.3200, lng: 77.0000 },
-    { lat: 12.3052, lng: 76.6552 },
-  ];
+  const liveStationTrust = computeConfidenceScore(targetStation);
 
   if (tripComplete) {
     return (
@@ -111,63 +246,81 @@ export default function ActiveTripPage() {
             <CheckCircle2 className="w-12 h-12 text-emerald-600" />
           </div>
         </motion.div>
-        <h1 className="text-3xl font-extrabold text-black mb-2">Trip Complete!</h1>
-        <p className="text-gray-500 font-bold mb-8">Heading to Mysore Palace</p>
+        <h1 className="text-3xl font-extrabold text-black mb-2">Arrived at Station!</h1>
+        <p className="text-gray-500 font-bold mb-8">{targetStation.name}</p>
         <div className="grid grid-cols-3 gap-4 w-full max-w-sm mb-8">
           <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-center">
-            <div className="text-2xl font-extrabold text-black">{trip.totalDistanceKm}km</div>
+            <div className="text-2xl font-extrabold text-black">6.4 km</div>
             <div className="text-[10px] text-gray-500 font-bold mt-1">Distance</div>
           </div>
           <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-center">
-            <div className="text-2xl font-extrabold text-black">₹{Math.round(costAccrued + 0)}</div>
+            <div className="text-2xl font-extrabold text-black">₹{Math.round(costAccrued || 284)}</div>
             <div className="text-[10px] text-gray-500 font-bold mt-1">Charged</div>
           </div>
           <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-center">
-            <div className="text-2xl font-extrabold text-emerald-600">18m</div>
-            <div className="text-[10px] text-gray-500 font-bold mt-1">Time saved</div>
+            <div className="text-2xl font-extrabold text-emerald-600">14m</div>
+            <div className="text-[10px] text-gray-500 font-bold mt-1">Time Saved</div>
           </div>
         </div>
-        <p className="text-sm text-emerald-700 font-extrabold">ChargeAhead predicted congestion & saved you 18 minutes of waiting.</p>
+        <p className="text-sm text-emerald-700 font-extrabold">ChargeAhead guided your EV safely with live turn-by-turn navigation.</p>
       </motion.div>
     );
   }
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden relative bg-white text-black">
-      {/* Full-screen map */}
+      {/* Full-screen Interactive Google Map */}
       <MapComponent
-        stations={[nextStop.station]}
-        route={route}
+        stations={[targetStation]}
+        route={waypoints}
         height="100%"
         className="absolute inset-0"
-        userLocation={{ lat: 12.9116, lng: 77.6389 }}
-        selectedStationId={nextStop.stationId}
+        userLocation={currentPos}
+        selectedStationId={targetStation.id}
+        followUser={followVehicle}
+        autoFitRouteOnLoad={false}
       />
 
-      {/* Top overlay */}
-      <div className="absolute top-4 left-4 right-4 z-20">
-        <div className="bg-white/95 backdrop-blur-md border border-gray-200 rounded-2xl px-4 py-3 shadow-md flex items-center gap-3">
-          <div className={cn('w-2.5 h-2.5 rounded-full animate-pulse', phase === 'driving' ? 'bg-emerald-500' : phase === 'charging' ? 'bg-amber-500' : 'bg-black')} />
-          <div className="flex-1">
-            <p className="text-sm font-extrabold text-black">
-              {phase === 'driving' && '→ Mysore Palace via Koramangala Hub'}
-              {phase === 'arriving' && 'Arriving at charging stop…'}
-              {phase === 'charging' && 'Charging at Nexcharge Koramangala'}
-              {phase === 'complete' && 'Charging complete — continue journey'}
-            </p>
-            <p className="text-xs text-gray-500 font-bold">
-              {phase === 'driving' && `Next stop: ${nextStop.station.name} · ${nextStop.arrivalBatteryPercent}% on arrival`}
-              {phase === 'arriving' && 'Pull into bay 3 • Show QR code'}
-              {phase === 'charging' && `${timeRemaining} min remaining`}
-              {phase === 'complete' && 'Ready to continue to Mysore'}
-            </p>
+      {/* Top Turn-by-Turn Voice Navigation Banner (Google Maps Dark Theme) */}
+      <div className="absolute top-4 left-4 right-4 z-20 space-y-2 max-w-md mx-auto">
+        <div className="bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.back()}
+              className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all shrink-0"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <div className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                <Navigation className="w-3.5 h-3.5" />
+                <span>In {distanceRemainingKm} km · {etaMinutesRemaining} min ETA</span>
+              </div>
+              <p className="text-sm font-black text-white leading-snug mt-0.5">{currentInstruction}</p>
+            </div>
           </div>
-          <Battery className={cn('w-5 h-5 shrink-0', chargePercent > 50 ? 'text-emerald-600' : chargePercent > 20 ? 'text-amber-500' : 'text-red-500')} />
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleVoice}
+              className={cn(
+                'p-2.5 rounded-xl border transition-all text-xs font-bold',
+                voiceEnabled ? 'bg-emerald-600/30 border-emerald-500 text-emerald-300' : 'bg-white/10 border-white/20 text-gray-400'
+              )}
+              title={voiceEnabled ? 'Mute Voice Assistant' : 'Enable Voice Assistant'}
+            >
+              {voiceEnabled ? <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+            <div className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-lg border border-white/10">
+              <Battery className={cn('w-4 h-4 shrink-0', chargePercent > 40 ? 'text-emerald-400' : 'text-amber-400')} />
+              <span className="text-xs font-black text-white">{Math.round(chargePercent)}%</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Bottom sheet */}
-      <div className="absolute bottom-0 left-0 right-0 z-20">
+      {/* Bottom Navigation Control Sheet */}
+      <div className="absolute bottom-0 left-0 right-0 z-20 max-w-md mx-auto">
         <motion.div
           initial={{ y: 100 }}
           animate={{ y: 0 }}
@@ -177,56 +330,81 @@ export default function ActiveTripPage() {
           <div className="sheet-handle bg-gray-300" />
 
           {phase === 'driving' && (
-            <div className="pb-4">
-              <div className="flex items-center justify-between mb-4">
+            <div className="pb-4 space-y-3">
+              <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-gray-500 font-bold">Next stop</p>
-                  <p className="font-extrabold text-black text-base">{nextStop.station.name}</p>
+                  <p className="text-[11px] text-gray-500 font-extrabold uppercase tracking-wider">Destination Charger</p>
+                  <p className="font-black text-black text-base">{targetStation.name}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <Clock className="w-3 h-3 text-gray-400" />
-                    <span className="text-xs text-gray-600 font-bold">~12 min · {nextStop.arrivalBatteryPercent}% on arrival</span>
+                    <Clock className="w-3.5 h-3.5 text-gray-400" />
+                    <span className="text-xs text-gray-600 font-bold">~{etaMinutesRemaining} min ({distanceRemainingKm} km) · {targetStation.address}</span>
                   </div>
                 </div>
+
                 <div className="text-right">
-                  <p className="text-xs text-gray-500 font-bold">Battery</p>
-                  <p className="text-2xl font-extrabold text-emerald-600">{Math.round(chargePercent)}%</p>
+                  <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full block mb-1">
+                    {liveStationTrust}% Trust Score
+                  </span>
+                  <p className="text-2xl font-black text-emerald-600">{Math.round(chargePercent)}%</p>
                 </div>
               </div>
-              <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden mb-4">
-                <div className="h-full bg-black rounded-full transition-all" style={{ width: `${chargePercent}%` }} />
+
+              {/* Live Location Navigation Action Bar */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setFollowVehicle((f) => !f)}
+                  className={cn(
+                    'flex-1 py-2.5 rounded-xl border text-xs font-black flex items-center justify-center gap-2 transition-all shadow-xs',
+                    followVehicle ? 'bg-black text-white border-black' : 'bg-gray-100 text-black border-gray-300'
+                  )}
+                >
+                  <LocateFixed className="w-4 h-4" /> {followVehicle ? 'Lock Camera to Car' : 'Free Camera View'}
+                </button>
+
+                <button
+                  onClick={() => setReportSheetOpen(true)}
+                  className="py-2.5 px-3 rounded-xl bg-purple-50 border border-purple-200 hover:border-purple-300 text-purple-900 font-black text-xs flex items-center gap-1.5 transition-all shadow-xs"
+                >
+                  <MessageSquare className="w-4 h-4 text-purple-600" /> Report Status
+                </button>
               </div>
+
               <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5">
-                  <div className="text-sm font-extrabold text-black">151 km</div>
-                  <div className="text-[10px] text-gray-500 font-bold">total trip</div>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-2">
+                  <div className="text-sm font-extrabold text-black">{distanceRemainingKm} km</div>
+                  <div className="text-[10px] text-gray-500 font-bold">remaining</div>
                 </div>
-                <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5">
-                  <div className="text-sm font-extrabold text-black">{trip.estimatedCostInr ? `₹${trip.estimatedCostInr}` : '₹285'}</div>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-2">
+                  <div className="text-sm font-extrabold text-black">₹{targetStation.pricePerKwh * 15}</div>
                   <div className="text-[10px] text-gray-500 font-bold">est. cost</div>
                 </div>
-                <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5">
-                  <div className="text-sm font-extrabold text-emerald-600">18m saved</div>
-                  <div className="text-[10px] text-gray-500 font-bold">vs. no plan</div>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-2">
+                  <div className="text-sm font-extrabold text-emerald-600">
+                    {targetStation.ports?.[0]?.bayLocation ?? 'Bay 1 Ready'}
+                  </div>
+                  <div className="text-[10px] text-gray-500 font-bold">reserved slot</div>
                 </div>
               </div>
             </div>
           )}
 
           {phase === 'arriving' && (
-            <div className="pb-4">
-              <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-gray-100 border border-gray-300">
-                <MapPin className="w-5 h-5 text-black shrink-0" />
+            <div className="pb-4 space-y-3">
+              <div className="flex items-center gap-3 p-3.5 rounded-xl bg-gray-100 border border-gray-300">
+                <MapPin className="w-6 h-6 text-black shrink-0" />
                 <div>
-                  <p className="text-sm font-extrabold text-black">Arriving at Nexcharge Koramangala</p>
-                  <p className="text-xs text-gray-600 font-bold">Head to Bay 3 · Show QR code or enter CA7291</p>
+                  <p className="text-sm font-black text-black">Arrived at {targetStation.name}</p>
+                  <p className="text-xs text-gray-600 font-bold mt-0.5">
+                    Proceed to {targetStation.ports?.[0]?.bayLocation ?? 'Bay 1'} · Check-in Code: CA7291
+                  </p>
                 </div>
               </div>
               <button
                 onClick={handleStartCharging}
                 disabled={loadingSession}
-                className="w-full py-3.5 rounded-xl bg-black text-white font-extrabold text-sm flex items-center justify-center gap-2 hover:bg-gray-900 disabled:opacity-60 shadow-md"
+                className="w-full py-3.5 rounded-xl bg-black text-white font-black text-sm flex items-center justify-center gap-2 hover:bg-gray-900 disabled:opacity-60 shadow-md"
               >
-                {loadingSession ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <>⚡ Start Charging</>}
+                {loadingSession ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <>⚡ Connect Plug & Start Charging</>}
               </button>
             </div>
           )}
@@ -252,11 +430,11 @@ export default function ActiveTripPage() {
           )}
 
           {phase === 'complete' && (
-            <div className="pb-4">
-              <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            <div className="pb-4 space-y-3">
+              <div className="flex items-center gap-3 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0" />
                 <div>
-                  <p className="text-sm font-extrabold text-emerald-700">Charged to 80% ⚡</p>
+                  <p className="text-sm font-black text-emerald-700">Charged to 80% ⚡</p>
                   <p className="text-xs text-gray-600 font-bold">{energyKwh.toFixed(1)} kWh delivered · ₹{Math.round(costAccrued)}</p>
                 </div>
               </div>
@@ -264,47 +442,33 @@ export default function ActiveTripPage() {
                 onClick={handleEndTrip}
                 className="w-full py-3.5 rounded-xl bg-black text-white font-extrabold text-sm hover:bg-gray-900 shadow-md"
               >
-                Continue to Mysore →
+                Complete Navigation →
               </button>
             </div>
           )}
         </motion.div>
       </div>
 
-      {/* Reroute alert */}
-      <AnimatePresence>
-        {rerouteAlert && (
-          <motion.div
-            initial={{ y: -80, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -80, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            className="absolute top-20 left-4 right-4 z-30 bg-amber-50 rounded-2xl p-4 border border-amber-300 shadow-xl"
-          >
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-extrabold text-amber-900 mb-1">Route Update</p>
-                <p className="text-xs text-amber-800 font-bold mb-3">{rerouteAlert.message}</p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { acceptReroute(); toast.success('Route updated to Ather Grid MG Road'); }}
-                    className="flex-1 py-2 rounded-xl bg-black text-white text-xs font-extrabold hover:bg-gray-900 transition-all shadow"
-                  >
-                    Accept Reroute
-                  </button>
-                  <button
-                    onClick={() => { dismissReroute(); toast.info('Keeping original route'); }}
-                    className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 text-xs font-bold hover:bg-white transition-all"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Community Report Sheet */}
+      <ReportIssueSheet
+        isOpen={reportSheetOpen}
+        onClose={() => setReportSheetOpen(false)}
+        station={targetStation}
+      />
     </div>
+  );
+}
+
+export default function ActiveTripPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="h-dvh flex items-center justify-center bg-white">
+          <div className="w-8 h-8 border-4 border-black border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <ActiveTripContent />
+    </Suspense>
   );
 }

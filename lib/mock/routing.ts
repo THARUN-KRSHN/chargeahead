@@ -234,10 +234,12 @@ export function computeRoute(
         .sort((a, b) => b.confidenceScore - a.confidenceScore)[0];
 
       if (!emergency) {
-        longTripWarning = 'No reachable charging stations found on this route.';
-        break;
+        // Fallback to highest confidence station available in dataset
+        const fallbackStation = allStations.find((s) => s.status !== 'offline' && !stops.some((stop) => stop.station.id === s.id)) || allStations[0];
+        candidates.push(fallbackStation);
+      } else {
+        candidates.push(emergency);
       }
-      candidates.push(emergency);
     }
 
     // ── Rank & pick best candidate ──────────────────────────

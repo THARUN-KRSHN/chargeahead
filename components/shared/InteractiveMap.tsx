@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
 import type { ChargingStation, LatLng } from '@/types';
+import { LocateFixed } from 'lucide-react';
 
 interface InteractiveMapProps {
   center?: LatLng;
@@ -16,56 +18,14 @@ interface InteractiveMapProps {
 }
 
 const DEFAULT_CENTER: LatLng = { lat: 12.9716, lng: 77.5946 };
+const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
-// Draw or update the route layers — called after map is ready
-function upsertRouteLayer(map: any, routeGeometry: LatLng[]) {
-  const coords = routeGeometry.map((p) => [p.lng, p.lat]);
-  const geojson: any = {
-    type: 'Feature',
-    geometry: { type: 'LineString', coordinates: coords },
-    properties: {},
-  };
-
-  if (map.getSource('route-source')) {
-    (map.getSource('route-source') as any).setData(geojson);
-    return;
+let mapsInitialized = false;
+function initGoogleMaps() {
+  if (!mapsInitialized) {
+    setOptions({ key: API_KEY, v: 'weekly', libraries: ['places', 'geometry', 'marker'] });
+    mapsInitialized = true;
   }
-
-  map.addSource('route-source', { type: 'geojson', data: geojson });
-
-  // White outer glow
-  map.addLayer({
-    id: 'route-glow',
-    type: 'line',
-    source: 'route-source',
-    layout: { 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': '#FFFFFF', 'line-width': 18, 'line-opacity': 0.35 },
-  });
-
-  // Dark navy casing
-  map.addLayer({
-    id: 'route-casing',
-    type: 'line',
-    source: 'route-source',
-    layout: { 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': '#0A0F1E', 'line-width': 13, 'line-opacity': 1 },
-  });
-
-  // Bright neon green core
-  map.addLayer({
-    id: 'route-line',
-    type: 'line',
-    source: 'route-source',
-    layout: { 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': '#00FF88', 'line-width': 7, 'line-opacity': 1 },
-  });
-}
-
-function removeRouteLayer(map: any) {
-  ['route-line', 'route-casing', 'route-glow'].forEach((id) => {
-    if (map.getLayer(id)) map.removeLayer(id);
-  });
-  if (map.getSource('route-source')) map.removeSource('route-source');
 }
 
 export function InteractiveMap({
@@ -80,221 +40,231 @@ export function InteractiveMap({
   className = '',
 }: InteractiveMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
-  const [mapLoaded, setMapLoaded] = useState(false);
-  const [MapLibreModule, setMapLibreModule] = useState<any>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const markersRef = useRef<google.maps.Marker[]>([]);
+  const polylineRef = useRef<google.maps.Polyline | null>(null);
+  const vehicleMarkerRef = useRef<google.maps.Marker | null>(null);
+  const [isReady, setIsReady] = useState(false);
 
-  // Stable ref for latest onStationClick
-  const onStationClickRef = useRef(onStationClick);
-  useEffect(() => { onStationClickRef.current = onStationClick; }, [onStationClick]);
-
-  // Load MapLibre GL lazily (client-side only)
+  // Initialize Map
   useEffect(() => {
-    import('maplibre-gl')
-      .then((ml) => setMapLibreModule(ml))
-      .catch((err) => console.error('[MapLibre] Failed to load:', err));
+    if (!mapRef.current || mapInstanceRef.current) return;
+    initGoogleMaps();
+
+    importLibrary('maps')
+      .then((mapsLib) => {
+        if (!mapRef.current) return;
+
+        const map = new mapsLib.Map(mapRef.current, {
+          center: { lat: center?.lat ?? DEFAULT_CENTER.lat, lng: center?.lng ?? DEFAULT_CENTER.lng },
+          zoom: zoom ?? 12,
+          disableDefaultUI: false,
+          zoomControl: true,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+          styles: [
+            { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+            { featureType: 'transit', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+          ],
+        });
+
+        mapInstanceRef.current = map;
+        setIsReady(true);
+      })
+      .catch((err) => console.error('[Google Maps Interactive] Loader error:', err));
+
+    return () => {
+      if (polylineRef.current) polylineRef.current.setMap(null);
+      if (vehicleMarkerRef.current) vehicleMarkerRef.current.setMap(null);
+      markersRef.current.forEach((m) => m.setMap(null));
+      markersRef.current = [];
+      mapInstanceRef.current = null;
+    };
   }, []);
 
-  // Initialize the map once MapLibre is ready
+  // Update center
   useEffect(() => {
-    if (!MapLibreModule || !mapRef.current || mapInstanceRef.current) return;
-
-    const map = new MapLibreModule.Map({
-      container: mapRef.current,
-      style: {
-        version: 8,
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-        sources: {
-          osm: {
-            type: 'raster',
-            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-            tileSize: 256,
-            attribution: '© OpenStreetMap contributors',
-          },
-        },
-        layers: [{ id: 'osm-bg', type: 'raster', source: 'osm' }],
-      },
-      center: [center?.lng ?? DEFAULT_CENTER.lng, center?.lat ?? DEFAULT_CENTER.lat],
-      zoom,
-      attributionControl: false,
-    });
-
-    map.on('load', () => {
-      setMapLoaded(true);
-      setTimeout(() => map.resize(), 100);
-    });
-
-    mapInstanceRef.current = map;
-    return () => {
-      map.remove();
-      mapInstanceRef.current = null;
-      setMapLoaded(false);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [MapLibreModule]);
-
-  // ----- Route layer -----
-  useEffect(() => {
-    if (!mapLoaded || !mapInstanceRef.current) return;
-    const map = mapInstanceRef.current;
-
-    if (!routeGeometry || routeGeometry.length < 2) {
-      removeRouteLayer(map);
-      return;
+    if (!isReady || !mapInstanceRef.current) return;
+    const target = activeVehiclePos || origin || center;
+    if (target) {
+      mapInstanceRef.current.panTo({ lat: target.lat, lng: target.lng });
     }
+  }, [isReady, center?.lat, center?.lng, activeVehiclePos?.lat, activeVehiclePos?.lng, origin?.lat, origin?.lng]);
 
-    upsertRouteLayer(map, routeGeometry);
-  }, [mapLoaded, routeGeometry]);
-
-  // ----- Camera bounds -----
+  // Render Stations and Origin/Dest Markers
   useEffect(() => {
-    if (!mapLoaded || !mapInstanceRef.current || !MapLibreModule) return;
-    const map = mapInstanceRef.current;
-    map.resize();
+    if (!isReady || !mapInstanceRef.current) return;
 
-    const points: LatLng[] = [];
-    if (routeGeometry && routeGeometry.length > 1) {
-      // Sample every 10th point to compute bounds quickly
-      routeGeometry.filter((_, i) => i % 10 === 0).forEach((p) => points.push(p));
-      if (points.length < 2) points.push(...routeGeometry.slice(0, 2));
-    } else {
-      if (origin) points.push(origin);
-      if (destination) points.push(destination);
-    }
-
-    if (points.length >= 2) {
-      const bounds = new MapLibreModule.LngLatBounds();
-      points.forEach((p) => bounds.extend([p.lng, p.lat]));
-      map.fitBounds(bounds, {
-        padding: { top: 80, bottom: 80, left: 460, right: 80 },
-        maxZoom: 14,
-        duration: 1000,
-      });
-    } else if (origin) {
-      map.flyTo({ center: [origin.lng, origin.lat], zoom: 13, duration: 800 });
-    }
-  }, [mapLoaded, origin, destination, routeGeometry, MapLibreModule]);
-
-  // ----- Markers (OCM stations, origin, destination, vehicle) -----
-  useEffect(() => {
-    if (!mapLoaded || !mapInstanceRef.current || !MapLibreModule) return;
-    const map = mapInstanceRef.current;
-
-    // Remove all previous markers
-    markersRef.current.forEach((m) => m.remove());
+    markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
 
-    // Helper: add marker
-    const addMarker = (el: HTMLElement, lngLat: [number, number]) => {
-      const m = new MapLibreModule.Marker({ element: el }).setLngLat(lngLat).addTo(map);
-      markersRef.current.push(m);
-    };
-
-    // Origin pin
+    // Origin Marker
     if (origin) {
-      const el = document.createElement('div');
-      el.style.cssText = `
-        width:44px;height:44px;border-radius:50%;
-        background:#10B981;border:4px solid #fff;
-        box-shadow:0 0 0 3px #10B981,0 6px 20px rgba(0,0,0,0.5);
-        display:flex;align-items:center;justify-content:center;
-        position:relative;z-index:30;
-      `;
-      el.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="3"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="#0F172A"/></svg>`;
-      addMarker(el, [origin.lng, origin.lat]);
+      const origMarker = new google.maps.Marker({
+        position: { lat: origin.lat, lng: origin.lng },
+        map: mapInstanceRef.current,
+        title: 'Start Location',
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: '#10B981',
+          fillOpacity: 1,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 3,
+          scale: 8,
+        },
+      });
+      markersRef.current.push(origMarker);
     }
 
-    // Destination pin
+    // Destination Marker
     if (destination) {
-      const el = document.createElement('div');
-      el.style.cssText = `
-        width:44px;height:44px;border-radius:50%;
-        background:#EF4444;border:4px solid #fff;
-        box-shadow:0 0 0 3px #EF4444,0 6px 20px rgba(0,0,0,0.5);
-        display:flex;align-items:center;justify-content:center;
-        position:relative;z-index:30;
-      `;
-      el.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="#fff" stroke="#fff" stroke-width="1"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`;
-      addMarker(el, [destination.lng, destination.lat]);
+      const destMarker = new google.maps.Marker({
+        position: { lat: destination.lat, lng: destination.lng },
+        map: mapInstanceRef.current,
+        title: 'Destination',
+        icon: {
+          path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+          fillColor: '#EF4444',
+          fillOpacity: 1,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 2,
+          scale: 6,
+        },
+      });
+      markersRef.current.push(destMarker);
     }
 
-    // OCM station pins
+    // Stations
     stations.forEach((station) => {
-      if (!station?.coordinates?.lat || !station?.coordinates?.lng) return;
+      if (!station.coordinates) return;
 
-      const score = station.confidenceScore ?? 60;
-      const isHigh = score >= 80;
-      const isMed = score >= 60;
-      const dotColor = isHigh ? '#10B981' : isMed ? '#F59E0B' : '#EF4444';
-      const borderColor = isHigh ? '#059669' : isMed ? '#D97706' : '#DC2626';
+      const color =
+        station.status === 'offline'
+          ? '#9CA3AF'
+          : station.confidenceLevel === 'high'
+          ? '#00C853'
+          : station.confidenceLevel === 'medium'
+          ? '#F59E0B'
+          : '#E85D4C';
 
-      const el = document.createElement('div');
-      el.style.cssText = `
-        width:40px;height:40px;border-radius:50%;
-        background:#0F172A;border:3px solid ${dotColor};
-        box-shadow:0 2px 12px rgba(0,0,0,0.5),0 0 0 2px ${borderColor}33;
-        display:flex;align-items:center;justify-content:center;
-        cursor:pointer;transition:transform 0.18s cubic-bezier(.34,1.56,.64,1);
-        position:relative;z-index:20;
-      `;
-      el.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="${dotColor}"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`;
-      el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.25)'; });
-      el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)'; });
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        onStationClickRef.current?.(station);
+      const evLightningPath = 'M13 2L3 14h9l-1 8 10-12h-9l1-8z';
+      const marker = new google.maps.Marker({
+        position: { lat: station.coordinates.lat, lng: station.coordinates.lng },
+        map: mapInstanceRef.current!,
+        title: station.name,
+        icon: {
+          path: evLightningPath,
+          fillColor: color,
+          fillOpacity: 1,
+          strokeColor: '#000000',
+          strokeWeight: 1.2,
+          scale: 1.1,
+          anchor: new google.maps.Point(12, 12),
+        },
       });
 
-      addMarker(el, [station.coordinates.lng, station.coordinates.lat]);
-    });
+      const infoWindow = new google.maps.InfoWindow({
+        content: `
+          <div style="padding:6px; font-family:sans-serif; min-width:140px;">
+            <div style="font-weight:800; font-size:13px; color:#000;">${station.name}</div>
+            <div style="font-size:11px; color:${color}; font-weight:700; margin-top:2px;">${station.confidenceScore}% reliable</div>
+            <div style="font-size:11px; color:#555; margin-top:2px;">${station.availablePorts}/${station.totalPorts} ports free</div>
+          </div>
+        `,
+      });
 
-    // Active vehicle
-    if (activeVehiclePos) {
-      const el = document.createElement('div');
-      el.style.cssText = `
-        width:46px;height:46px;border-radius:50%;
-        background:#2563EB;border:4px solid #fff;
-        box-shadow:0 0 0 4px rgba(37,99,235,0.4),0 6px 20px rgba(0,0,0,0.5);
-        display:flex;align-items:center;justify-content:center;
-        animation:pulse 2s infinite;position:relative;z-index:40;
-      `;
-      el.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M12 2L19 21L12 17L5 21L12 2Z"/></svg>`;
-      addMarker(el, [activeVehiclePos.lng, activeVehiclePos.lat]);
+      marker.addListener('click', () => {
+        infoWindow.open(mapInstanceRef.current!, marker);
+        onStationClick?.(station);
+      });
+
+      markersRef.current.push(marker);
+    });
+  }, [isReady, stations, origin, destination, onStationClick]);
+
+  // Route Polyline
+  useEffect(() => {
+    if (!isReady || !mapInstanceRef.current) return;
+
+    if (polylineRef.current) {
+      polylineRef.current.setMap(null);
+      polylineRef.current = null;
     }
-  }, [mapLoaded, origin, destination, stations, activeVehiclePos, MapLibreModule]);
+
+    if (routeGeometry && routeGeometry.length >= 2) {
+      polylineRef.current = new google.maps.Polyline({
+        path: routeGeometry.map((p) => ({ lat: p.lat, lng: p.lng })),
+        geodesic: true,
+        strokeColor: '#000000',
+        strokeOpacity: 0.85,
+        strokeWeight: 5,
+        map: mapInstanceRef.current,
+      });
+
+      const bounds = new google.maps.LatLngBounds();
+      routeGeometry.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
+      mapInstanceRef.current.fitBounds(bounds, { top: 50, bottom: 50, left: 50, right: 50 });
+    }
+  }, [isReady, routeGeometry]);
+
+  // Active Vehicle Marker
+  useEffect(() => {
+    if (!isReady || !mapInstanceRef.current) return;
+
+    if (vehicleMarkerRef.current) {
+      vehicleMarkerRef.current.setMap(null);
+      vehicleMarkerRef.current = null;
+    }
+
+    if (activeVehiclePos) {
+      vehicleMarkerRef.current = new google.maps.Marker({
+        position: { lat: activeVehiclePos.lat, lng: activeVehiclePos.lng },
+        map: mapInstanceRef.current,
+        title: 'Vehicle Position',
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: '#2563EB',
+          fillOpacity: 1,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 3,
+          scale: 8,
+        },
+        zIndex: 999,
+      });
+    }
+  }, [isReady, activeVehiclePos]);
+
+  // Recenter handler
+  const handleRecenter = useCallback(() => {
+    if (!mapInstanceRef.current) return;
+    const target = activeVehiclePos || origin || center || DEFAULT_CENTER;
+    mapInstanceRef.current.panTo({ lat: target.lat, lng: target.lng });
+    mapInstanceRef.current.setZoom(14);
+  }, [activeVehiclePos, origin, center]);
 
   return (
-    <div className={`relative w-full h-full ${className}`}>
+    <div className={`relative overflow-hidden w-full h-full ${className}`}>
       <div ref={mapRef} className="w-full h-full" />
 
-      {/* Loading overlay */}
-      {!mapLoaded && (
-        <div className="absolute inset-0 bg-[#0F172A] flex items-center justify-center z-10">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-10 h-10 rounded-full border-[3px] border-[#10B981] border-t-transparent animate-spin" />
-            <span className="text-sm font-semibold text-slate-400">Loading Map & OCM Live Data…</span>
-          </div>
-        </div>
+      {/* Recenter Button */}
+      {isReady && (
+        <button
+          type="button"
+          onClick={handleRecenter}
+          title="Recenter Map"
+          className="absolute right-4 bottom-6 z-20 bg-white border border-gray-200 text-black p-3 rounded-full shadow-lg hover:bg-gray-50 active:scale-95 transition-all flex items-center justify-center"
+        >
+          <LocateFixed className="w-5 h-5 text-black" />
+        </button>
       )}
 
-      {/* Map legend */}
-      {mapLoaded && (
-        <div className="absolute bottom-4 right-4 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl px-3.5 py-2.5 flex flex-col gap-1.5 z-20 shadow-2xl">
-          <div className="flex items-center gap-2 text-[10px] text-slate-800 font-extrabold">
-            <span className="w-3 h-3 rounded-full bg-[#10B981] inline-block shadow-sm" /> High Reliability
+      {!isReady && (
+        <div className="absolute inset-0 bg-gray-50 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-8 h-8 rounded-full border-2 border-black border-t-transparent animate-spin" />
+            <span className="text-gray-500 text-xs font-bold">Loading Map…</span>
           </div>
-          <div className="flex items-center gap-2 text-[10px] text-slate-800 font-extrabold">
-            <span className="w-3 h-3 rounded-full bg-[#F59E0B] inline-block shadow-sm" /> Medium Reliability
-          </div>
-          <div className="flex items-center gap-2 text-[10px] text-slate-800 font-extrabold">
-            <span className="w-3 h-3 rounded-full bg-[#EF4444] inline-block shadow-sm" /> Low Reliability
-          </div>
-          {routeGeometry && routeGeometry.length > 1 && (
-            <div className="flex items-center gap-2 text-[10px] text-slate-900 font-black mt-0.5 pt-1.5 border-t border-slate-200">
-              <span className="w-8 h-2 rounded-full bg-[#00FF88] border border-slate-800 inline-block" /> EV Route
-            </div>
-          )}
         </div>
       )}
     </div>

@@ -30,57 +30,49 @@ const CATEGORIES: {
   category: ReportCategory;
   label: string;
   icon: any;
-  color: string;
   activeBg: string;
 }[] = [
   {
     category: 'broken',
     label: 'Broken Charger',
     icon: Wrench,
-    color: 'text-red-600',
-    activeBg: 'bg-red-500 text-white border-red-500',
+    activeBg: 'bg-red-600 text-white border-red-500 shadow-md shadow-red-900/30',
   },
   {
     category: 'blocked',
     label: 'Spot Blocked',
     icon: Ban,
-    color: 'text-amber-600',
-    activeBg: 'bg-amber-500 text-white border-amber-500',
+    activeBg: 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-900/30',
   },
   {
     category: 'busy',
     label: 'Long Queue',
     icon: Clock,
-    color: 'text-amber-600',
-    activeBg: 'bg-amber-600 text-white border-amber-600',
+    activeBg: 'bg-amber-500 text-white border-amber-400 shadow-md shadow-amber-900/30',
   },
   {
     category: 'payment_issue',
     label: 'Payment Failure',
     icon: CreditCard,
-    color: 'text-purple-600',
-    activeBg: 'bg-purple-600 text-white border-purple-600',
+    activeBg: 'bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-900/30',
   },
   {
     category: 'incorrect_info',
     label: 'Wrong Info / Price',
     icon: Info,
-    color: 'text-blue-600',
-    activeBg: 'bg-blue-600 text-white border-blue-600',
+    activeBg: 'bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-900/30',
   },
   {
     category: 'safety',
     label: 'Safety Concern',
     icon: AlertTriangle,
-    color: 'text-red-700',
-    activeBg: 'bg-red-700 text-white border-red-700',
+    activeBg: 'bg-red-700 text-white border-red-600 shadow-md shadow-red-950/40',
   },
   {
     category: 'working',
     label: 'Working Perfectly',
     icon: CheckCircle2,
-    color: 'text-emerald-600',
-    activeBg: 'bg-emerald-600 text-white border-emerald-600',
+    activeBg: 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-900/30',
   },
 ];
 
@@ -93,7 +85,6 @@ export function ReportIssueSheet({ isOpen, onClose, station }: ReportIssueSheetP
   const { canUserReport, submitReport } = useReportStore();
 
   const handleAttachPhoto = () => {
-    // Mock photo attachment
     const mockPhotos = [
       'https://images.unsplash.com/photo-1563720223185-11003d516935?w=400&q=80',
       'https://images.unsplash.com/photo-1558441719-23451ead6699?w=400&q=80',
@@ -106,7 +97,6 @@ export function ReportIssueSheet({ isOpen, onClose, station }: ReportIssueSheetP
   const handleSubmit = async () => {
     if (!selectedCategory) return;
 
-    // Rate limiting check
     const userId = 'user-001';
     const rateCheck = canUserReport(userId, station.id);
     if (!rateCheck.allowed) {
@@ -130,7 +120,6 @@ export function ReportIssueSheet({ isOpen, onClose, station }: ReportIssueSheetP
 
       toast.success('Thanks! Your report has been sent to the station operator and community.');
 
-      // Reset and close
       setSelectedCategory(null);
       setComment('');
       setPhotoUrl(null);
@@ -144,16 +133,15 @@ export function ReportIssueSheet({ isOpen, onClose, station }: ReportIssueSheetP
 
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose} title="Report an Issue" showHandle showCloseButton>
-      <div className="space-y-5 pb-6 text-slate-900">
-        <div>
-          <p className="text-xs font-bold text-slate-500">
-            Reporting issue for <span className="font-extrabold text-slate-900">{station.name}</span>
-          </p>
+      <div className="space-y-4 pt-1 text-white">
+        <div className="bg-slate-800/70 rounded-2xl p-3 border border-slate-700/60 flex items-center justify-between">
+          <span className="text-xs text-slate-400 font-semibold">Reporting for</span>
+          <span className="text-xs font-black text-emerald-400 truncate max-w-[240px]">{station.name}</span>
         </div>
 
         {/* Category Single-Select Chips */}
         <div className="space-y-2">
-          <label className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+          <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
             Select Primary Issue
           </label>
           <div className="grid grid-cols-2 gap-2">
@@ -164,13 +152,13 @@ export function ReportIssueSheet({ isOpen, onClose, station }: ReportIssueSheetP
                   key={category}
                   type="button"
                   onClick={() => setSelectedCategory(category)}
-                  className={`p-3 rounded-2xl border text-xs font-bold flex items-center gap-2.5 transition-all text-left ${
+                  className={`p-3 rounded-2xl border text-xs font-extrabold flex items-center gap-2.5 transition-all text-left ${
                     isSelected
                       ? activeBg
-                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-400 hover:bg-white'
+                      : 'bg-slate-800/80 border-slate-700/80 text-slate-200 hover:border-slate-500 hover:bg-slate-800'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : ''}`} />
+                  <Icon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : 'text-slate-400'}`} />
                   <span className="truncate">{label}</span>
                 </button>
               );
@@ -180,7 +168,7 @@ export function ReportIssueSheet({ isOpen, onClose, station }: ReportIssueSheetP
 
         {/* Optional Comment Textarea */}
         <div className="space-y-1.5">
-          <label className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+          <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
             Optional Context / Note
           </label>
           <textarea
@@ -188,21 +176,21 @@ export function ReportIssueSheet({ isOpen, onClose, station }: ReportIssueSheetP
             onChange={(e) => setComment(e.target.value)}
             placeholder="e.g. Gun #2 CCS2 thermal cutout issue, wait queue is 4 cars..."
             rows={3}
-            className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white resize-none font-medium transition-all"
+            className="w-full bg-slate-800 border border-slate-700 rounded-2xl px-4 py-3 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 resize-none font-medium transition-all"
           />
         </div>
 
-        {/* Mock Photo Attachment */}
+        {/* Photo Attachment */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
               Attach Photo Proof
             </span>
             {photoUrl && (
               <button
                 type="button"
                 onClick={() => setPhotoUrl(null)}
-                className="text-[11px] font-bold text-red-600 hover:underline flex items-center gap-1"
+                className="text-[11px] font-extrabold text-red-400 hover:underline flex items-center gap-1"
               >
                 <X className="w-3 h-3" /> Remove photo
               </button>
@@ -210,16 +198,16 @@ export function ReportIssueSheet({ isOpen, onClose, station }: ReportIssueSheetP
           </div>
 
           {photoUrl ? (
-            <div className="relative rounded-2xl overflow-hidden border border-slate-200 h-28 bg-slate-100">
+            <div className="relative rounded-2xl overflow-hidden border border-slate-700 h-28 bg-slate-800">
               <img src={photoUrl} alt="Report attachment" className="w-full h-full object-cover" />
             </div>
           ) : (
             <button
               type="button"
               onClick={handleAttachPhoto}
-              className="w-full py-3 px-4 rounded-2xl border-2 border-dashed border-slate-200 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/50 text-slate-600 flex items-center justify-center gap-2 text-xs font-extrabold transition-all"
+              className="w-full py-3 px-4 rounded-2xl border-2 border-dashed border-slate-700 hover:border-emerald-500 bg-slate-800/50 hover:bg-slate-800 text-slate-300 flex items-center justify-center gap-2 text-xs font-extrabold transition-all"
             >
-              <Camera className="w-4 h-4 text-emerald-600" /> Snap or Upload Photo
+              <Camera className="w-4 h-4 text-emerald-400" /> Snap or Upload Photo
             </button>
           )}
         </div>
@@ -229,7 +217,7 @@ export function ReportIssueSheet({ isOpen, onClose, station }: ReportIssueSheetP
           type="button"
           onClick={handleSubmit}
           disabled={!selectedCategory || submitting}
-          className="w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-slate-950 font-black text-xs shadow-xl flex items-center justify-center gap-2 transition-all uppercase tracking-wider"
+          className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black text-xs shadow-xl flex items-center justify-center gap-2 transition-all uppercase tracking-wider mt-2"
         >
           {submitting ? (
             <>

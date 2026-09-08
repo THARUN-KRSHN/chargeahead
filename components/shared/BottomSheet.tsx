@@ -47,7 +47,7 @@ export function BottomSheet({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm"
               onClick={handleBackdropClick}
             />
           )}
@@ -61,23 +61,25 @@ export function BottomSheet({
             exit={{ y: '100%' }}
             transition={{ type: 'spring', stiffness: 400, damping: 40 }}
             className={cn(
-              'fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl shadow-sheet',
-              'bg-navy-900 border-t border-surface-border',
+              'fixed bottom-0 left-0 right-0 z-[70] max-w-xl mx-auto rounded-t-3xl shadow-2xl',
+              'bg-slate-900 border-t border-slate-800 text-white',
               'max-h-[90vh] overflow-hidden flex flex-col',
               className,
             )}
           >
             {/* Handle */}
-            {showHandle && <div className="sheet-handle mt-3" />}
+            {showHandle && (
+              <div className="w-12 h-1.5 rounded-full bg-slate-700 mx-auto mt-3 mb-1 shrink-0" />
+            )}
 
             {/* Header */}
             {(title || showCloseButton) && (
-              <div className="flex items-center justify-between px-5 pb-3">
-                {title && <h2 className="text-base font-semibold text-white">{title}</h2>}
+              <div className="flex items-center justify-between px-5 pb-2 pt-1">
+                {title && <h2 className="text-base font-black text-white">{title}</h2>}
                 {showCloseButton && onClose && (
                   <button
                     onClick={onClose}
-                    className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/5 transition-all"
+                    className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
                     aria-label="Close"
                   >
                     <X className="w-4 h-4" />
@@ -87,7 +89,7 @@ export function BottomSheet({
             )}
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto px-5 pb-safe">{children}</div>
+            <div className="flex-1 overflow-y-auto px-5 pb-6">{children}</div>
           </motion.div>
         </>
       )}

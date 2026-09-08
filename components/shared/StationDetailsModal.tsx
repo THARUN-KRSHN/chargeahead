@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
@@ -34,7 +34,12 @@ export function StationDetailsModal({
 }: StationDetailsModalProps) {
   const [reportSheetOpen, setReportSheetOpen] = useState(false);
 
-  const reports = useReportStore((state) => (station ? state.getReportsForStation(station.id) : []));
+  const allReports = useReportStore((state) => state.reports);
+  const reports = useMemo(() => {
+    if (!station) return [];
+    return allReports.filter((r) => r.stationId === station.id);
+  }, [allReports, station?.id]);
+
   const corroborateReport = useReportStore((state) => state.corroborateReport);
   const computeConfidenceScore = useReportStore((state) => state.computeConfidenceScore);
 
