@@ -30,22 +30,21 @@ import { ENROUTE_FALLBACK_STATIONS } from '@/lib/api/geminiRoutePlanner';
 import { startChargingSession, stopChargingSession } from '@/lib/mock/api';
 import { getBookingById, DYNAMIC_BOOKINGS } from '@/lib/mock/bookings';
 import { getStationById } from '@/lib/mock/stations';
+import { fetchOSRMRoute, type RouteStepInstruction } from '@/lib/api/geoServices';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { LatLng, ChargingStation } from '@/types';
 
 type TripPhase = 'driving' | 'arriving' | 'charging' | 'complete';
 
-// Interpolate smooth dense waypoints along route
-function generateSmoothWaypoints(origin: LatLng, destination: LatLng, totalSteps = 60): LatLng[] {
+// Fallback interpolation if OSRM response is delayed
+function generateSmoothWaypoints(origin: LatLng, destination: LatLng, totalSteps = 50): LatLng[] {
   const points: LatLng[] = [];
-  // Midpoint curve offset to simulate real road curvature
-  const midLat = (origin.lat + destination.lat) / 2 + 0.005;
-  const midLng = (origin.lng + destination.lng) / 2 + 0.005;
+  const midLat = (origin.lat + destination.lat) / 2 + 0.003;
+  const midLng = (origin.lng + destination.lng) / 2 + 0.003;
 
   for (let i = 0; i <= totalSteps; i++) {
     const t = i / totalSteps;
-    // Quadratic Bezier interpolation for natural road bend
     const lat = (1 - t) * (1 - t) * origin.lat + 2 * (1 - t) * t * midLat + t * t * destination.lat;
     const lng = (1 - t) * (1 - t) * origin.lng + 2 * (1 - t) * t * midLng + t * t * destination.lng;
     points.push({ lat, lng });
@@ -77,6 +76,12 @@ function ActiveTripContent() {
   const [reportSheetOpen, setReportSheetOpen] = useState(false);
   const [followVehicle, setFollowVehicle] = useState(true);
 
+  // OSRM Real Road Route states
+  const [osrmWaypoints, setOsrmWaypoints] = useState<LatLng[]>([]);
+  const [osrmDistanceKm, setOsrmDistanceKm] = useState<number>(5.1);
+  const [osrmDurationMin, setOsrmDurationMin] = useState<number>(8);
+  const [osrmSteps, setOsrmSteps] = useState<RouteStepInstruction[]>([]);
+
   // Dynamic target station resolution based on URL params / activeTrip / DYNAMIC_BOOKINGS
   const targetStation: ChargingStation = useMemo(() => {
     if (bookingId) {
@@ -105,45 +110,76 @@ function ActiveTripContent() {
     [targetStation.coordinates]
   );
 
-  // Origin coordinates: active trip origin OR ~5km offset from target station
+  // Origin coordinates: active trip origin OR ~4km road offset towards booked station
   const originCoords: LatLng = useMemo(() => {
     if (activeTrip?.origin?.coordinates) return activeTrip.origin.coordinates;
     return {
-      lat: targetStation.coordinates.lat + 0.035,
-      lng: targetStation.coordinates.lng + 0.025,
+      lat: targetStation.coordinates.lat + 0.028,
+      lng: targetStation.coordinates.lng - 0.012,
     };
   }, [activeTrip?.origin?.coordinates, targetStation.coordinates.lat, targetStation.coordinates.lng]);
 
-  // Generate smooth waypoints
-  const waypoints = useMemo(() => {
-    return generateSmoothWaypoints(originCoords, destCoords, 50);
+  // Fetch real OSRM road geometry & navigation steps
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRealRoadRoute() {
+      try {
+        const routeData = await fetchOSRMRoute([originCoords, destCoords]);
+        if (!cancelled && routeData.geometry && routeData.geometry.length >= 2) {
+          setOsrmWaypoints(routeData.geometry);
+          setOsrmDistanceKm(routeData.distanceKm);
+          setOsrmDurationMin(routeData.durationMin);
+          if (routeData.steps && routeData.steps.length > 0) {
+            setOsrmSteps(routeData.steps);
+          }
+        }
+      } catch (err) {
+        console.warn('OSRM road route fetch fallback:', err);
+      }
+    }
+
+    loadRealRoadRoute();
+    return () => {
+      cancelled = true;
+    };
   }, [originCoords.lat, originCoords.lng, destCoords.lat, destCoords.lng]);
 
-  // Animated vehicle position along the route during driving phase
+  // Active waypoints (real OSRM road polyline or smooth fallback)
+  const waypoints = useMemo(() => {
+    if (osrmWaypoints.length >= 2) return osrmWaypoints;
+    return generateSmoothWaypoints(originCoords, destCoords, 50);
+  }, [osrmWaypoints, originCoords.lat, originCoords.lng, destCoords.lat, destCoords.lng]);
+
+  // Animated vehicle position along the real road route during driving phase
   const [stepIndex, setStepIndex] = useState(0);
   const currentPos = waypoints[stepIndex] || waypoints[0];
 
   const progressFraction = stepIndex / (waypoints.length - 1 || 1);
-  const distanceRemainingKm = Math.max(0.2, parseFloat(((1 - progressFraction) * 6.4).toFixed(1)));
-  const etaMinutesRemaining = Math.max(1, Math.round((1 - progressFraction) * 9));
+  const distanceRemainingKm = Math.max(0.1, parseFloat(((1 - progressFraction) * (osrmDistanceKm || 5.1)).toFixed(1)));
+  const etaMinutesRemaining = Math.max(1, Math.round((1 - progressFraction) * (osrmDurationMin || 8)));
 
-  // Dynamic Turn-by-Turn Instruction based on progress
+  // Dynamic Turn-by-Turn Instruction based on real road steps & progress
   const currentInstruction = useMemo(() => {
     if (phase !== 'driving') return `Arrived at ${targetStation.name}`;
+    if (osrmSteps.length > 0) {
+      const stepIdx = Math.min(Math.floor(progressFraction * osrmSteps.length), osrmSteps.length - 1);
+      return osrmSteps[stepIdx].instruction;
+    }
     if (progressFraction < 0.3) {
-      return `Head south towards ${targetStation.name}`;
+      return `Head south towards ${targetStation.name} on ${targetStation.address.split(',')[0] || 'Main Road'}`;
     } else if (progressFraction < 0.7) {
-      return `In 600m, turn right onto Station Service Lane`;
+      return `In 500m, turn onto Station Plaza Service Lane`;
     } else if (progressFraction < 0.95) {
-      return `In 200m, enter ${targetStation.name} · Bay 1`;
+      return `In 150m, enter ${targetStation.name} · ${targetStation.ports?.[0]?.bayLocation ?? 'Bay 1'}`;
     } else {
       return `Arriving at ${targetStation.name}`;
     }
-  }, [phase, progressFraction, targetStation.name]);
+  }, [phase, progressFraction, targetStation.name, targetStation.address, targetStation.ports, osrmSteps]);
 
   // Voice Guidance Trigger on major instruction changes
   useEffect(() => {
-    if (voiceEnabled && phase === 'driving' && stepIndex % 12 === 0) {
+    if (voiceEnabled && phase === 'driving' && stepIndex % 10 === 0) {
       speakText(`${currentInstruction}. Battery level ${Math.round(chargePercent)} percent.`, true);
     }
   }, [stepIndex, phase, voiceEnabled, currentInstruction, chargePercent]);
@@ -162,7 +198,7 @@ function ActiveTripContent() {
 
   // Move vehicle smoothly along waypoints during driving phase
   useEffect(() => {
-    if (phase !== 'driving') return;
+    if (phase !== 'driving' || waypoints.length === 0) return;
     const timer = setInterval(() => {
       setStepIndex((prev) => {
         if (prev < waypoints.length - 1) {
@@ -173,7 +209,7 @@ function ActiveTripContent() {
         setPhase('arriving');
         return prev;
       });
-    }, 1500);
+    }, 1200);
     return () => clearInterval(timer);
   }, [phase, waypoints.length]);
 
@@ -250,11 +286,11 @@ function ActiveTripContent() {
         <p className="text-gray-500 font-bold mb-8">{targetStation.name}</p>
         <div className="grid grid-cols-3 gap-4 w-full max-w-sm mb-8">
           <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-center">
-            <div className="text-2xl font-extrabold text-black">6.4 km</div>
+            <div className="text-2xl font-extrabold text-black">{osrmDistanceKm} km</div>
             <div className="text-[10px] text-gray-500 font-bold mt-1">Distance</div>
           </div>
           <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-center">
-            <div className="text-2xl font-extrabold text-black">₹{Math.round(costAccrued || 284)}</div>
+            <div className="text-2xl font-extrabold text-black">₹{Math.round(costAccrued || 240)}</div>
             <div className="text-[10px] text-gray-500 font-bold mt-1">Charged</div>
           </div>
           <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-center">
