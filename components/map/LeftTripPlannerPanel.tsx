@@ -207,32 +207,34 @@ export function LeftTripPlannerPanel({
     <>
       {/* Floating Trigger Button on Map (when panel closed) */}
       {!isOpen && (
-        <div className="absolute top-4 left-4 z-30 w-80 md:w-96">
+        <div className="absolute top-3 left-3 right-3 sm:left-4 sm:right-auto sm:w-96 z-30">
           <button
             onClick={() => onToggle(true)}
-            className="w-full flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3.5 shadow-xl hover:shadow-2xl hover:border-emerald-500 transition-all text-left group"
+            className="w-full flex items-center gap-3 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl px-4 py-3 shadow-xl hover:shadow-2xl hover:border-emerald-500 transition-all text-left group"
           >
             <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold shrink-0 group-hover:scale-105 transition-transform">
               <Search className="w-4 h-4" />
             </div>
             <div className="flex-1 overflow-hidden">
               <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Plan EV Trip</span>
-              <span className="block text-sm font-black text-slate-900 truncate">Where do you want to go?</span>
+              <span className="block text-xs sm:text-sm font-black text-slate-900 truncate">Where do you want to go?</span>
             </div>
           </button>
         </div>
       )}
 
-      {/* Main Left Trip Planner Panel */}
+      {/* Main Left Trip Planner Panel (Bottom Sheet on Mobile, Left Sidebar on Desktop) */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ x: -420, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -420, opacity: 0 }}
+            initial={{ y: 300, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 300, opacity: 0 }}
             transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-            className="absolute top-0 left-0 bottom-0 w-full md:w-[420px] bg-white border-r border-slate-200 shadow-2xl z-40 flex flex-col overflow-hidden"
+            className="absolute bottom-0 left-0 right-0 top-auto md:top-0 md:bottom-0 md:left-0 md:right-auto w-full md:w-[420px] max-h-[75vh] md:max-h-none h-[65vh] md:h-full bg-white rounded-t-3xl md:rounded-none border-t md:border-t-0 md:border-r border-slate-200 shadow-2xl z-40 flex flex-col overflow-hidden"
           >
+            {/* Mobile Handle */}
+            <div className="w-12 h-1.5 rounded-full bg-slate-300 mx-auto mt-2.5 mb-0.5 shrink-0 md:hidden" />
             {/* Panel Header */}
             <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white text-slate-900">
               <div className="flex items-center gap-2.5">

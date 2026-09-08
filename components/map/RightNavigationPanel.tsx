@@ -145,12 +145,14 @@ export function RightNavigationPanel({ plan, onEndJourney }: RightNavigationPane
   return (
     <>
       <motion.div
-        initial={{ x: 420, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        exit={{ x: 420, opacity: 0 }}
+        initial={{ y: 300, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 300, opacity: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-        className="absolute top-0 right-0 bottom-0 w-full md:w-[400px] bg-white text-slate-900 border-l border-slate-200 shadow-2xl z-40 flex flex-col overflow-hidden"
+        className="absolute bottom-0 left-0 right-0 top-auto md:top-0 md:bottom-0 md:right-0 md:left-auto w-full md:w-[400px] max-h-[70vh] md:max-h-none h-[60vh] md:h-full bg-white text-slate-900 rounded-t-3xl md:rounded-none border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl z-40 flex flex-col overflow-hidden"
       >
+        {/* Mobile Drag Handle */}
+        <div className="w-12 h-1.5 rounded-full bg-slate-300 mx-auto mt-2.5 mb-0.5 shrink-0 md:hidden" />
         {/* Navigation Header */}
         <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white">
           <div className="flex items-center gap-2.5">

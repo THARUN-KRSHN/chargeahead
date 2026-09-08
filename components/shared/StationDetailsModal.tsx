@@ -57,14 +57,16 @@ export function StationDetailsModal({
   return (
     <>
       <AnimatePresence>
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/60 backdrop-blur-sm">
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            initial={{ opacity: 0, scale: 0.95, y: 100 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            exit={{ opacity: 0, scale: 0.95, y: 100 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200 text-slate-900"
+            className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 text-slate-900 max-h-[80vh] sm:max-h-[85vh] flex flex-col"
           >
+            {/* Mobile Drag Handle */}
+            <div className="w-12 h-1.5 rounded-full bg-slate-400/50 mx-auto mt-2 mb-0.5 sm:hidden shrink-0" />
             {/* Modal Header */}
             <div className="p-5 bg-slate-900 text-white flex items-start justify-between relative">
               <div className="flex items-start gap-3 pr-8">

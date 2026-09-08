@@ -292,7 +292,7 @@ export function MapComponent({
       
       {/* Map Controls */}
       {isReady && (
-        <div className="absolute right-4 bottom-28 z-20 flex flex-col gap-2">
+        <div className="absolute right-4 bottom-36 md:bottom-28 z-30 flex flex-col gap-2">
           {route && route.length >= 2 && (
             <button
               type="button"

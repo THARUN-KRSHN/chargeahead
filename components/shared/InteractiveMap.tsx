@@ -359,7 +359,7 @@ export function InteractiveMap({
           type="button"
           onClick={handleRecenter}
           title="Recenter Map"
-          className="absolute right-4 bottom-6 z-20 bg-white border border-gray-200 text-black p-3 rounded-full shadow-lg hover:bg-gray-50 active:scale-95 transition-all flex items-center justify-center"
+          className="absolute right-4 bottom-20 sm:bottom-6 z-30 bg-white border border-gray-200 text-black p-3 rounded-full shadow-lg hover:bg-gray-50 active:scale-95 transition-all flex items-center justify-center"
         >
           <LocateFixed className="w-5 h-5 text-black" />
         </button>
