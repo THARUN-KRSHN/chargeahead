@@ -80,7 +80,6 @@
   let listShowAll = false; // "show more" for long station lists
   let lastDeterministicPlan = null; // for Groq validation / fallback
   let lastGroqResult = null; // { summary, stops:[{id,reason}], spokenText } after validation
-  let currentBriefingAudio = null; // HTMLAudioElement when Groq TTS is playing
   let recommendedStationIds = new Set(); // highlighted on map + list
 
   // ---------------------------------------------------------------------------
@@ -103,8 +102,7 @@
     chargePlan: $("charge-plan"),
     aiPlan: $("ai-plan"),
     clearRoute: $("clear-route"),
-    connectorFilter: $("connector-filter"),
-    reachableOnly: $("reachable-only"),
+    applyReplan: $("apply-replan"),
     listTitle: $("list-title"),
     stationCount: $("station-count"),
     stationList: $("station-list"),
@@ -448,16 +446,6 @@
     return "red";
   }
 
-  function stopSpeaking() {
-    if (currentBriefingAudio) {
-      try {
-        currentBriefingAudio.pause();
-        currentBriefingAudio.src = "";
-      } catch (_) {}
-      currentBriefingAudio = null;
-    }
-    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-  }
 
   /**
    * Comfort / break suggestions from real trip duration only (no fake POIs).
@@ -680,25 +668,18 @@
     el.listTitle.textContent = title || "Nearby stations";
 
     let filtered = stations.slice();
-    if (activeFilter) {
-      filtered = filtered.filter((s) =>
-        s.connections.some((c) => c.type === activeFilter)
-      );
-    }
-    if (reachableOnly) {
-      filtered = filtered.filter(isReachable);
-    }
 
-    // Along a route: sort by progress along the trip (order you'd pass them).
-    // Nearby mode: keep straight-line distance from you.
+    // Suggested stops first, then by route progress (or distance when nearby).
     const onRoute = filtered.some((s) => s.routeProgressKm != null);
-    if (onRoute) {
-      filtered.sort(
-        (a, b) => (a.routeProgressKm ?? 9999) - (b.routeProgressKm ?? 9999)
-      );
-    } else {
-      filtered.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
-    }
+    filtered.sort((a, b) => {
+      const ar = recommendedStationIds.has(a.id) ? 0 : 1;
+      const br = recommendedStationIds.has(b.id) ? 0 : 1;
+      if (ar !== br) return ar - br;
+      if (onRoute) {
+        return (a.routeProgressKm ?? 9999) - (b.routeProgressKm ?? 9999);
+      }
+      return (a.distanceKm ?? 999) - (b.distanceKm ?? 999);
+    });
 
     el.stationCount.textContent = String(filtered.length);
 
@@ -707,7 +688,7 @@
       return;
     }
     if (!filtered.length) {
-      el.stationList.innerHTML = `<div class="empty-state">No stations match the current filters (connector / reachable range).</div>`;
+      el.stationList.innerHTML = `<div class="empty-state">No stations to show for this route.</div>`;
       return;
     }
 
@@ -750,11 +731,12 @@
           .join(", ");
         const tier = classifyStationTier(s);
         const tierColor = TIER_COLORS[tier] || TIER_COLORS.yellow;
-        const recBadge = recommendedStationIds.has(s.id)
-          ? `<span class="rec-badge">★ Suggested</span>`
+        const isSuggested = recommendedStationIds.has(s.id);
+        const recBadge = isSuggested
+          ? `<span class="rec-badge">★ Suggested stop</span>`
           : "";
         return `
-          <div class="station-card ${selectedId === s.id ? "active" : ""} ${reach ? "" : "out-of-range"}" data-id="${s.id}">
+          <div class="station-card ${selectedId === s.id ? "active" : ""} ${isSuggested ? "suggested" : ""} ${reach ? "" : "out-of-range"}" data-id="${s.id}">
             <div class="name"><span class="tier-dot" style="background:${tierColor}" title="${tier}"></span>${escapeHtml(s.name)}${recBadge}</div>
             <div class="meta">
               <span class="dist" title="Straight-line distance from your position">${fromYou}</span>
@@ -804,6 +786,7 @@
   }
 
   function updateConnectorFilter(stations) {
+    if (!el.connectorFilter) return;
     const types = new Set();
     stations.forEach((s) =>
       s.connections.forEach((c) => {
@@ -1039,6 +1022,40 @@
     });
   }
 
+  /**
+   * Apply current battery settings and re-run charge plan + highlights for the active route.
+   * Does not clear the destination — recomputes stops with the latest SoC / range / reserve.
+   */
+  async function applyAndReplan() {
+    // Pull latest values from inputs
+    socPercent = Number(el.socInput.value) || 0;
+    fullRangeKm = Number(el.fullRangeInput.value) || 1;
+    if (el.safetyInput) safetyPercent = Number(el.safetyInput.value) || 0;
+    saveVehicleProfile();
+    updateRangeUI();
+
+    if (!lastRoute || !destCoords || !userPos) {
+      showMapMessage("Set a destination first, then Apply & replan.", true);
+      return;
+    }
+
+    showMapMessage("Replanning with updated charge settings…");
+    try {
+      // Refresh plan + recommended highlights from existing along-route stations
+      if (routeStations.length) {
+        updateChargePlan(lastRoute, routeStations);
+        hideMapMessage();
+      } else {
+        // Re-fetch stations along route if list was empty
+        const along = await loadStationsAlongRoute(lastRoute.polyline, CORRIDOR_KM);
+        updateChargePlan(lastRoute, along);
+      }
+    } catch (err) {
+      console.error(err);
+      showMapMessage("Replan failed: " + (err.message || err), true);
+    }
+  }
+
   function clearRoute() {
     destCoords = null;
     routeStations = [];
@@ -1053,7 +1070,6 @@
     el.routeInfo.classList.add("hidden");
     el.chargePlan.classList.add("hidden");
     if (el.aiPlan) el.aiPlan.classList.add("hidden");
-    stopSpeaking();
     lastDeterministicPlan = null;
     lastGroqResult = null;
     recommendedStationIds = new Set();
@@ -1308,11 +1324,6 @@
     const sparePct = fullRangeKm > 0 ? (spareKm / fullRangeKm) * 100 : 0;
 
     let candidates = stations.slice();
-    if (activeFilter) {
-      candidates = candidates.filter((s) =>
-        s.connections.some((c) => c.type === activeFilter)
-      );
-    }
 
     let cls = "ok";
     let html = `<h3>Charge plan</h3>`;
@@ -1375,10 +1386,6 @@
       }
     }
 
-    if (activeFilter) {
-      html += `<div class="plan-line">Filter active: <strong>${escapeHtml(activeFilter)}</strong></div>`;
-    }
-
     // Friendly comfort / break gestures from real duration only
     const comfort = buildComfortBreakHints(
       tripKm,
@@ -1394,15 +1401,12 @@
 
     html += `<div class="plan-line" style="margin-top:0.4rem;color:var(--text-muted);font-size:0.72rem">Deterministic plan: real OSRM distance + your SoC/range/reserve + live OCM stations. Stops ranked by route progress; detour ≤ ${ON_ROUTE_DETOUR_MAX_KM} km = on-route. Occupancy not predicted.</div>`;
 
-    html += voiceButtonRowHtml();
 
-    stopSpeaking();
     lastGroqResult = null;
 
     box.className = "charge-plan " + cls;
     box.innerHTML = html;
     box.classList.remove("hidden");
-    wireVoiceButtons(box);
 
     lastDeterministicPlan = {
       verdict,
@@ -1435,210 +1439,10 @@
     requestGroqPlan(route, candidates, lastDeterministicPlan);
   }
 
-  function voiceButtonRowHtml() {
-    return `<div class="voice-row">
-      <button type="button" class="btn-voice play-briefing">🔊 Play voice briefing</button>
-      <button type="button" class="btn-voice stop-briefing">⏹ Stop</button>
-    </div>`;
-  }
 
-  function wireVoiceButtons(container) {
-    if (!container) return;
-    const play = container.querySelector(".play-briefing");
-    const stop = container.querySelector(".stop-briefing");
-    if (play) {
-      play.onclick = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const text = buildSpokenText(lastDeterministicPlan, lastGroqResult);
-        if (!text) {
-          showMapMessage("No plan to read yet — set a destination first.", true);
-          return;
-        }
-        play.disabled = true;
-        const prev = play.textContent;
-        play.textContent = "Speaking…";
-        try {
-          await speakPlan(text);
-        } catch (err) {
-          console.error(err);
-          showMapMessage("Voice briefing failed: " + (err.message || err), true);
-        } finally {
-          play.disabled = false;
-          play.textContent = prev || "🔊 Play voice briefing";
-        }
-      };
-    }
-    if (stop) {
-      stop.onclick = (e) => {
-        e.preventDefault();
-        stopSpeaking();
-      };
-    }
-  }
 
-  function buildSpokenText(detPlan, groqResult) {
-    if (groqResult && groqResult.spokenText) return groqResult.spokenText;
-    if (!detPlan) return "";
 
-    const parts = [];
-    const trip = detPlan.tripKm != null ? detPlan.tripKm.toFixed(1) : "?";
-    parts.push(`Your trip is about ${trip} kilometers.`);
 
-    if (detPlan.verdict === "no_stop") {
-      const spare =
-        detPlan.spareKm != null ? detPlan.spareKm.toFixed(0) : "some";
-      parts.push(
-        `You'll arrive with about ${spare} kilometers to spare. No charging stop needed.`
-      );
-    } else if (detPlan.verdict === "impossible") {
-      parts.push(
-        "You cannot complete this trip within your current charge and safety reserve. Please raise your state of charge or adjust the reserve."
-      );
-    } else if (detPlan.plannedStops && detPlan.plannedStops.length) {
-      parts.push(
-        detPlan.plannedStops.length === 1
-          ? "One charging stop is recommended."
-          : `${detPlan.plannedStops.length} charging stops are recommended.`
-      );
-      detPlan.plannedStops.forEach((item, i) => {
-        const s = item.station;
-        if (!s) return;
-        const progress =
-          s.routeProgressKm != null
-            ? `about ${s.routeProgressKm.toFixed(0)} kilometers into the trip`
-            : "along the route";
-        const detour =
-          s.detourKm != null
-            ? `, about ${s.detourKm.toFixed(1)} kilometers off the road path`
-            : "";
-        parts.push(
-          `Stop ${i + 1}: ${s.name}, ${progress}${detour}.`
-        );
-      });
-    }
-
-    if (detPlan.comfort && detPlan.comfort.length) {
-      parts.push(detPlan.comfort.join(" "));
-    }
-
-    return parts.join(" ");
-  }
-
-  async function speakPlan(text) {
-    stopSpeaking();
-    const clean = (text || "").replace(/\s+/g, " ").trim();
-    if (!clean) {
-      showMapMessage("Nothing to read — generate a route plan first.", true);
-      return null;
-    }
-
-    // Prefer browser speech FIRST — must stay inside the user-gesture call stack
-    // (awaiting Groq first often breaks speechSynthesis in Chrome).
-    if ("speechSynthesis" in window) {
-      try {
-        await speakWithBrowser(clean);
-        return null;
-      } catch (err) {
-        console.warn("Browser speech failed:", err);
-      }
-    }
-
-    // Optional Groq TTS if browser speech unavailable/failed
-    if (GROQ_API_KEY && GROQ_API_KEY.trim()) {
-      try {
-        const res = await fetch("https://api.groq.com/openai/v1/audio/speech", {
-          method: "POST",
-          headers: {
-            Authorization: "Bearer " + GROQ_API_KEY.trim(),
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "playai-tts",
-            voice: "Aaliyah-PlayAI",
-            input: clean.slice(0, 2000),
-            response_format: "wav",
-          }),
-        });
-        if (!res.ok) {
-          const errBody = await res.text().catch(() => "");
-          throw new Error("Groq TTS " + res.status + " " + errBody.slice(0, 120));
-        }
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        currentBriefingAudio = audio;
-        audio.onended = () => {
-          URL.revokeObjectURL(url);
-          if (currentBriefingAudio === audio) currentBriefingAudio = null;
-        };
-        await audio.play();
-        return audio;
-      } catch (err) {
-        console.warn("Groq TTS failed:", err);
-        showMapMessage("Voice failed — check volume or try Chrome/Edge.", true);
-      }
-    } else {
-      showMapMessage("Voice briefing isn't supported in this browser.", true);
-    }
-    return null;
-  }
-
-  function speakWithBrowser(clean) {
-    return new Promise((resolve, reject) => {
-      const run = () => {
-        try {
-          window.speechSynthesis.cancel();
-          // Chrome quirk: pause/resume helps kick the engine after cancel
-          window.speechSynthesis.pause();
-          window.speechSynthesis.resume();
-
-          const u = new SpeechSynthesisUtterance(clean);
-          u.rate = 1.05;
-          u.pitch = 1;
-          u.volume = 1;
-          u.lang = "en-IN";
-          const voices = window.speechSynthesis.getVoices() || [];
-          const en =
-            voices.find((v) => /en-IN/i.test(v.lang)) ||
-            voices.find((v) => /en-GB/i.test(v.lang)) ||
-            voices.find((v) => /^en/i.test(v.lang));
-          if (en) u.voice = en;
-
-          let settled = false;
-          const done = () => {
-            if (settled) return;
-            settled = true;
-            resolve();
-          };
-          u.onend = done;
-          u.onerror = (e) => {
-            if (settled) return;
-            settled = true;
-            reject(e.error || new Error("speech error"));
-          };
-          window.speechSynthesis.speak(u);
-          // Safety: some browsers never fire onend
-          setTimeout(done, Math.min(120000, 3000 + clean.length * 60));
-        } catch (err) {
-          reject(err);
-        }
-      };
-
-      const voices = window.speechSynthesis.getVoices();
-      if (voices && voices.length) {
-        run();
-      } else {
-        const onV = () => {
-          window.speechSynthesis.removeEventListener("voiceschanged", onV);
-          run();
-        };
-        window.speechSynthesis.addEventListener("voiceschanged", onV);
-        // Also try immediately — some browsers already work
-        setTimeout(run, 250);
-      }
-    });
-  }
 
 
   // ---------------------------------------------------------------------------
@@ -1780,8 +1584,7 @@ Return JSON shape:
         });
       }
       html += `<div class="plan-line" style="margin-top:0.35rem;color:var(--text-muted);font-size:0.72rem">Station facts (distances, connectors) come from Open Charge Map / OSRM — not from the model. Invalid model IDs were dropped.</div>`;
-      html += voiceButtonRowHtml();
-
+  
       // Spoken text prefers AI summary + validated stop reasons
       const spokenParts = [];
       if (parsed.summary) spokenParts.push(parsed.summary);
@@ -1822,7 +1625,6 @@ Return JSON shape:
       el.aiPlan.className = "charge-plan ai-plan ok";
       el.aiPlan.innerHTML = html;
       el.aiPlan.classList.remove("hidden");
-      wireVoiceButtons(el.aiPlan);
     } catch (err) {
       console.warn("Groq plan failed:", err);
       el.aiPlan.classList.add("hidden");
@@ -1930,6 +1732,9 @@ Return JSON shape:
     });
 
     el.clearRoute.addEventListener("click", clearRoute);
+    if (el.applyReplan) {
+      el.applyReplan.addEventListener("click", applyAndReplan);
+    }
   }
 
   function setupBatteryAndFilters() {
@@ -1984,17 +1789,6 @@ Return JSON shape:
       });
     }
     syncSocChips();
-
-    el.connectorFilter.addEventListener("change", () => {
-      activeFilter = el.connectorFilter.value;
-      renderStationList(getActiveList(), getActiveTitle());
-      if (lastRoute) updateChargePlan(lastRoute, routeStations);
-    });
-
-    el.reachableOnly.addEventListener("change", () => {
-      reachableOnly = el.reachableOnly.checked;
-      renderStationList(getActiveList(), getActiveTitle());
-    });
 
     // initial (HTML defaults if nothing saved)
     if (!saved) {

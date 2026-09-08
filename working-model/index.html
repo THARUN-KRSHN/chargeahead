@@ -72,21 +72,11 @@
             </div>
             <div id="charge-plan" class="charge-plan hidden"></div>
             <div id="ai-plan" class="charge-plan ai-plan hidden"></div>
-            <button id="clear-route" class="btn-secondary">Clear route</button>
+            <div class="route-actions">
+              <button id="apply-replan" class="btn-primary" type="button">Apply &amp; replan</button>
+              <button id="clear-route" class="btn-secondary" type="button">Clear route</button>
+            </div>
           </div>
-        </section>
-
-        <!-- Filter by connector type (from live data) -->
-        <section class="panel" id="filter-panel">
-          <h2>Filter by charge type</h2>
-          <select id="connector-filter">
-            <option value="">All connectors (from live results)</option>
-          </select>
-          <label class="check-row">
-            <input type="checkbox" id="reachable-only" />
-            Show only stations within remaining range
-          </label>
-          <p class="hint">Connector list is built only from types Open Charge Map returned for the current stations.</p>
         </section>
 
         <!-- Station list -->
