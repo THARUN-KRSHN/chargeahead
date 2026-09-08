@@ -2,6 +2,9 @@
  * ChargeAhead — Real Working Model
  * Live data only: Browser Geolocation, Open Charge Map, Nominatim, OSRM, OSM tiles.
  * No mocks, no hardcoded stations, no invented availability/queue/confidence numbers.
+ *
+ * Battery range uses only user-entered SoC % and full-range km.
+ * Remaining range = fullRangeKm * (soc / 100).
  */
 
 (function () {
@@ -11,12 +14,15 @@
   // Config — put a free OCM key here if you hit rate limits
   // Register at https://openchargemap.org (free)
   // ---------------------------------------------------------------------------
-  const OCM_API_KEY = " d338ca7e-aadf-4249-8245-b268bd32e47e "; // optional; leave empty for anonymous (low volume)
+  const OCM_API_KEY = ""; // optional; leave empty for anonymous (low volume)
 
   const OCM_BASE = "https://api.openchargemap.io/v3/poi/";
   const NOMINATIM = "https://nominatim.openstreetmap.org/search";
   const OSRM = "https://router.project-osrm.org/route/v1/driving";
   const FALLBACK_CENTER = { lat: 12.9716, lng: 77.5946 }; // Bengaluru (labeled as default)
+
+  // Safety buffer: plan stops so you arrive with this fraction of full range still left
+  const ARRIVAL_BUFFER_FRAC = 0.15; // 15% reserve
 
   // ---------------------------------------------------------------------------
   // State
@@ -25,14 +31,20 @@
   let userMarker = null;
   let stationMarkers = [];
   let routeSourceId = "route-line";
-  let userPos = null;           // { lat, lng } or null
+  let userPos = null;
   let isFallbackLocation = false;
-  let currentStations = [];     // raw OCM POIs + computed distanceKm
-  let routeStations = [];       // stations near destination / along route
+  let currentStations = [];
+  let routeStations = [];
   let activeFilter = "";
+  let reachableOnly = false;
   let selectedId = null;
   let destCoords = null;
   let searchTimeout = null;
+  let lastRoute = null; // { polyline, distanceKm, durationMin }
+
+  // User-provided battery (no invented vehicle model)
+  let socPercent = 70;
+  let fullRangeKm = 350;
 
   // ---------------------------------------------------------------------------
   // DOM refs
@@ -40,13 +52,18 @@
   const $ = (id) => document.getElementById(id);
   const el = {
     locationStatus: $("location-status"),
+    socInput: $("soc-input"),
+    fullRangeInput: $("full-range-input"),
+    remainingRange: $("remaining-range"),
     destInput: $("dest-input"),
     suggestions: $("suggestions"),
     routeInfo: $("route-info"),
     routeDistance: $("route-distance"),
     routeDuration: $("route-duration"),
+    chargePlan: $("charge-plan"),
     clearRoute: $("clear-route"),
     connectorFilter: $("connector-filter"),
+    reachableOnly: $("reachable-only"),
     listTitle: $("list-title"),
     stationCount: $("station-count"),
     stationList: $("station-list"),
@@ -71,6 +88,31 @@
     return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
   }
 
+  function remainingRangeKm() {
+    const soc = Math.max(0, Math.min(100, Number(socPercent) || 0));
+    const full = Math.max(1, Number(fullRangeKm) || 1);
+    return full * (soc / 100);
+  }
+
+  function usableRangeKm() {
+    // Keep a reserve so you don't plan to arrive at 0%
+    return Math.max(0, remainingRangeKm() - fullRangeKm * ARRIVAL_BUFFER_FRAC);
+  }
+
+  function updateRangeUI() {
+    const rem = remainingRangeKm();
+    el.remainingRange.textContent = `${rem.toFixed(0)} km`;
+    // Refresh list badges if we already have stations
+    const list = routeStations.length ? routeStations : currentStations;
+    if (list.length) {
+      renderStationList(
+        list,
+        routeStations.length ? "Stations along this route" : "Nearby stations"
+      );
+    }
+    if (lastRoute) updateChargePlan(lastRoute, routeStations);
+  }
+
   function showMapMessage(text, isError = false) {
     el.mapMessage.textContent = text;
     el.mapMessage.classList.toggle("err", isError);
@@ -84,6 +126,15 @@
   function setLocationStatus(text, cls) {
     el.locationStatus.textContent = text;
     el.locationStatus.className = "status-pill " + (cls || "");
+  }
+
+  function escapeHtml(str) {
+    if (str == null) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   // ---------------------------------------------------------------------------
@@ -107,37 +158,35 @@
       center: [center.lng, center.lat],
       zoom: 12,
     });
-
     map.addControl(new maplibregl.NavigationControl(), "top-right");
-
-    map.on("load", () => {
-      // route source/layer will be added when a route is drawn
-    });
   }
 
   function placeUserMarker(pos, isFallback) {
     if (userMarker) userMarker.remove();
-
-    const el = document.createElement("div");
-    el.style.cssText = `
+    const node = document.createElement("div");
+    node.style.cssText = `
       width: 18px; height: 18px; border-radius: 50%;
       background: ${isFallback ? "#f59e0b" : "#3b82f6"};
       border: 3px solid #fff;
       box-shadow: 0 0 0 6px ${isFallback ? "rgba(245,158,11,0.25)" : "rgba(59,130,246,0.3)"};
     `;
-    el.title = isFallback ? "Default location (Bengaluru) — geolocation denied or unavailable" : "Your location";
-
-    userMarker = new maplibregl.Marker({ element: el })
+    node.title = isFallback
+      ? "Default location (Bengaluru) — geolocation denied or unavailable"
+      : "Your location";
+    userMarker = new maplibregl.Marker({ element: node })
       .setLngLat([pos.lng, pos.lat])
       .addTo(map);
-
     map.flyTo({ center: [pos.lng, pos.lat], zoom: 12, duration: 1000 });
   }
 
   function getUserLocation() {
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
-        resolve({ pos: FALLBACK_CENTER, fallback: true, reason: "Geolocation not supported by this browser" });
+        resolve({
+          pos: FALLBACK_CENTER,
+          fallback: true,
+          reason: "Geolocation not supported by this browser",
+        });
         return;
       }
       navigator.geolocation.getCurrentPosition(
@@ -174,13 +223,15 @@
       compact: "true",
       verbose: "false",
     });
-    if (OCM_API_KEY) params.set("key", OCM_API_KEY);
+    if (OCM_API_KEY && OCM_API_KEY.trim()) params.set("key", OCM_API_KEY.trim());
 
     const url = `${OCM_BASE}?${params.toString()}`;
     const res = await fetch(url);
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error(`Open Charge Map error ${res.status}: ${text.slice(0, 120) || res.statusText}`);
+      throw new Error(
+        `Open Charge Map error ${res.status}: ${text.slice(0, 120) || res.statusText}`
+      );
     }
     return res.json();
   }
@@ -195,7 +246,10 @@
     const distanceKm = fromPos ? haversineKm(fromPos, coords) : null;
 
     const connections = (poi.Connections || []).map((c) => ({
-      type: (c.ConnectionType && c.ConnectionType.Title) || c.ConnectionTypeID || "Unknown",
+      type:
+        (c.ConnectionType && c.ConnectionType.Title) ||
+        c.ConnectionTypeID ||
+        "Unknown",
       powerKW: c.PowerKW != null ? c.PowerKW : null,
       quantity: c.Quantity || 1,
       status: (c.StatusType && c.StatusType.Title) || null,
@@ -226,6 +280,11 @@
     return days > 90;
   }
 
+  function isReachable(station) {
+    if (station.distanceKm == null) return true;
+    return station.distanceKm <= usableRangeKm();
+  }
+
   // ---------------------------------------------------------------------------
   // Markers & list
   // ---------------------------------------------------------------------------
@@ -235,66 +294,98 @@
   }
 
   function addStationMarker(station) {
-    const color = station.statusIsOperational === false ? "#6b7280" : "#22c55e";
-    const el = document.createElement("div");
-    el.style.cssText = `
+    const reachable = isReachable(station);
+    const color =
+      station.statusIsOperational === false
+        ? "#6b7280"
+        : reachable
+          ? "#22c55e"
+          : "#f59e0b";
+    const node = document.createElement("div");
+    node.style.cssText = `
       width: 28px; height: 28px; border-radius: 50%;
       background: ${color};
       border: 2px solid #fff;
       box-shadow: 0 0 8px ${color}80;
       cursor: pointer;
       display: flex; align-items: center; justify-content: center;
+      opacity: ${reachable ? 1 : 0.55};
     `;
-    el.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="#0f1419"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`;
-    el.title = station.name;
+    node.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="#0f1419"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`;
+    node.title = station.name + (reachable ? "" : " (beyond current usable range)");
 
-    const marker = new maplibregl.Marker({ element: el })
+    const marker = new maplibregl.Marker({ element: node })
       .setLngLat([station.coords.lng, station.coords.lat])
       .addTo(map);
 
-    el.addEventListener("click", (e) => {
+    node.addEventListener("click", (e) => {
       e.stopPropagation();
       selectStation(station);
     });
-
     stationMarkers.push(marker);
+  }
+
+  function getActiveList() {
+    return routeStations.length ? routeStations : currentStations;
+  }
+
+  function getActiveTitle() {
+    return routeStations.length ? "Stations along this route" : "Nearby stations";
   }
 
   function renderStationList(stations, title) {
     el.listTitle.textContent = title || "Nearby stations";
-    el.stationCount.textContent = String(stations.length);
+
+    let filtered = stations;
+    if (activeFilter) {
+      filtered = filtered.filter((s) =>
+        s.connections.some((c) => c.type === activeFilter)
+      );
+    }
+    if (reachableOnly) {
+      filtered = filtered.filter(isReachable);
+    }
+
+    el.stationCount.textContent = String(filtered.length);
 
     if (!stations.length) {
       el.stationList.innerHTML = `<div class="empty-state">No verified stations found in this area.<br>Open Charge Map may have sparse coverage outside major cities.</div>`;
       return;
     }
-
-    const filtered = activeFilter
-      ? stations.filter((s) =>
-          s.connections.some((c) => c.type === activeFilter)
-        )
-      : stations;
-
     if (!filtered.length) {
-      el.stationList.innerHTML = `<div class="empty-state">No stations match the selected connector filter.</div>`;
+      el.stationList.innerHTML = `<div class="empty-state">No stations match the current filters (connector / reachable range).</div>`;
       return;
     }
 
+    const rem = remainingRangeKm();
     el.stationList.innerHTML = filtered
       .map((s) => {
         const dist =
           s.distanceKm != null ? `${s.distanceKm.toFixed(1)} km` : "";
+        const reach = isReachable(s);
+        const reachLabel =
+          s.distanceKm != null
+            ? reach
+              ? `<span class="reach">in range</span>`
+              : `<span class="reach no">beyond range</span>`
+            : "";
         const stale = isStale(s.dateLastVerified)
           ? `<span class="freshness">not recently verified</span>`
           : "";
         const status = s.status || "Status unknown";
+        const types = [
+          ...new Set(s.connections.map((c) => c.type).filter(Boolean)),
+        ]
+          .slice(0, 3)
+          .join(", ");
         return `
-          <div class="station-card ${selectedId === s.id ? "active" : ""}" data-id="${s.id}">
+          <div class="station-card ${selectedId === s.id ? "active" : ""} ${reach ? "" : "out-of-range"}" data-id="${s.id}">
             <div class="name">${escapeHtml(s.name)}</div>
             <div class="meta">
               ${dist ? `<span class="dist">${dist}</span>` : ""}
+              ${reachLabel}
               <span>${escapeHtml(status)}</span>
-              ${s.operator ? `<span>${escapeHtml(s.operator)}</span>` : ""}
+              ${types ? `<span>${escapeHtml(types)}</span>` : ""}
               ${stale}
             </div>
           </div>`;
@@ -331,17 +422,12 @@
 
   function selectStation(station) {
     selectedId = station.id;
-    renderStationList(
-      routeStations.length ? routeStations : currentStations,
-      routeStations.length ? "Stations along / near route" : "Nearby stations"
-    );
-
+    renderStationList(getActiveList(), getActiveTitle());
     map.flyTo({
       center: [station.coords.lng, station.coords.lat],
       zoom: 14,
       duration: 800,
     });
-
     showDetail(station);
   }
 
@@ -356,6 +442,7 @@
     const staleNote = isStale(s.dateLastVerified)
       ? ` <span class="freshness">not recently verified</span>`
       : "";
+    const reach = isReachable(s);
 
     let connHtml = "";
     if (s.connections.length) {
@@ -386,39 +473,48 @@
           <span>${escapeHtml(s.status || "Unknown")}</span>
         </div>
         <div class="detail-item">
-          <label>Distance</label>
+          <label>Distance from you</label>
           <span>${s.distanceKm != null ? s.distanceKm.toFixed(2) + " km" : "—"}</span>
+        </div>
+        <div class="detail-item">
+          <label>Reachable now?</label>
+          <span style="color:${reach ? "var(--accent)" : "var(--danger)"}">${
+            s.distanceKm == null
+              ? "—"
+              : reach
+                ? "Yes (within usable range)"
+                : "No — beyond remaining charge"
+          }</span>
         </div>
         <div class="detail-item">
           <label>Last verified</label>
           <span>${verified}${staleNote}</span>
         </div>
+        <div class="detail-item">
+          <label>Your remaining range</label>
+          <span>${remainingRangeKm().toFixed(0)} km (usable ~${usableRangeKm().toFixed(0)} km)</span>
+        </div>
       </div>
       <div class="detail-item">
-        <label>Connectors (from OCM)</label>
+        <label>Connectors / charge type (from OCM)</label>
         ${connHtml}
       </div>
       <p class="no-data" style="margin-top:0.75rem">
-        Live availability, queue times and confidence scores are not provided by Open Charge Map and are intentionally not invented here.
+        Live port occupancy and queue times are not provided by Open Charge Map and are intentionally not invented here.
       </p>
     `;
     el.detailDrawer.classList.remove("hidden");
-  }
-
-  function escapeHtml(str) {
-    if (str == null) return "";
-    return String(str)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
   }
 
   // ---------------------------------------------------------------------------
   // Load stations for a point
   // ---------------------------------------------------------------------------
   async function loadStationsAround(pos, opts = {}) {
-    const { distanceKm = 15, title = "Nearby stations", setAsCurrent = true } = opts;
+    const {
+      distanceKm = 15,
+      title = "Nearby stations",
+      setAsCurrent = true,
+    } = opts;
     el.stationList.innerHTML = `<div class="empty-state">Fetching live stations from Open Charge Map…</div>`;
     el.stationCount.textContent = "…";
 
@@ -443,7 +539,10 @@
       renderStationList(stations, title);
 
       if (!stations.length) {
-        showMapMessage("No verified stations found in this area (Open Charge Map).", false);
+        showMapMessage(
+          "No verified stations found in this area (Open Charge Map).",
+          false
+        );
       } else {
         hideMapMessage();
       }
@@ -456,7 +555,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 3. Geocoding (Nominatim) + Routing (OSRM)
+  // 3. Geocoding + Routing + along-route stations + charge plan
   // ---------------------------------------------------------------------------
   async function geocode(query) {
     const url = `${NOMINATIM}?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=in`;
@@ -486,7 +585,11 @@
     if (!map.getSource(routeSourceId)) {
       map.addSource(routeSourceId, {
         type: "geojson",
-        data: { type: "Feature", geometry: { type: "LineString", coordinates: [] }, properties: {} },
+        data: {
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: [] },
+          properties: {},
+        },
       });
       map.addLayer({
         id: "route-layer",
@@ -512,6 +615,7 @@
   function clearRoute() {
     destCoords = null;
     routeStations = [];
+    lastRoute = null;
     if (map.getSource(routeSourceId)) {
       map.getSource(routeSourceId).setData({
         type: "Feature",
@@ -520,11 +624,155 @@
       });
     }
     el.routeInfo.classList.add("hidden");
+    el.chargePlan.classList.add("hidden");
     el.destInput.value = "";
-    // reload nearby stations around user
     if (userPos) {
-      loadStationsAround(userPos, { title: "Nearby stations", setAsCurrent: true });
+      loadStationsAround(userPos, {
+        title: "Nearby stations",
+        setAsCurrent: true,
+      });
     }
+  }
+
+  function samplePolyline(polyline, maxSamples = 6) {
+    if (!polyline || polyline.length === 0) return [];
+    if (polyline.length <= maxSamples) return polyline.slice();
+    const samples = [];
+    const step = (polyline.length - 1) / (maxSamples - 1);
+    for (let i = 0; i < maxSamples; i++) {
+      const idx = Math.round(i * step);
+      samples.push(polyline[Math.min(idx, polyline.length - 1)]);
+    }
+    return samples;
+  }
+
+  async function loadStationsAlongRoute(polyline, corridorKm = 8) {
+    el.stationList.innerHTML = `<div class="empty-state">Finding chargers along the route (live Open Charge Map)…</div>`;
+    el.stationCount.textContent = "…";
+    el.listTitle.textContent = "Stations along this route";
+
+    const samples = samplePolyline(polyline, 6);
+    if (userPos) samples.unshift(userPos);
+    if (destCoords) samples.push(destCoords);
+
+    const seen = new Map();
+    const errors = [];
+
+    for (const pt of samples) {
+      try {
+        const raw = await fetchOCMStations(pt.lat, pt.lng, corridorKm, 20);
+        (raw || []).forEach((poi) => {
+          const st = normalizeStation(poi, userPos);
+          if (st && !seen.has(st.id)) seen.set(st.id, st);
+        });
+      } catch (err) {
+        errors.push(err.message);
+        console.warn("OCM sample fetch failed:", err);
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    const alongRoute = Array.from(seen.values()).filter((st) => {
+      let minD = Infinity;
+      for (const p of polyline) {
+        const d = haversineKm(st.coords, p);
+        if (d < minD) minD = d;
+        if (minD <= corridorKm) break;
+      }
+      return minD <= corridorKm;
+    });
+
+    alongRoute.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+
+    clearStationMarkers();
+    alongRoute.forEach(addStationMarker);
+
+    routeStations = alongRoute;
+    updateConnectorFilter(alongRoute);
+    renderStationList(alongRoute, "Stations along this route");
+
+    if (!alongRoute.length) {
+      const msg = errors.length
+        ? `No stations found along the route. (${errors[0]})`
+        : "No verified stations found along this route corridor.";
+      showMapMessage(msg, false);
+    } else {
+      hideMapMessage();
+    }
+
+    return alongRoute;
+  }
+
+  /**
+   * Build a simple charge-preserving plan from real route distance + user SoC.
+   * Suggests the furthest reachable station along the route when a stop is needed.
+   */
+  function updateChargePlan(route, stations) {
+    const box = el.chargePlan;
+    if (!route) {
+      box.classList.add("hidden");
+      return;
+    }
+
+    const rem = remainingRangeKm();
+    const usable = usableRangeKm();
+    const tripKm = route.distanceKm;
+
+    // Stations matching connector filter (if any)
+    let candidates = stations.slice();
+    if (activeFilter) {
+      candidates = candidates.filter((s) =>
+        s.connections.some((c) => c.type === activeFilter)
+      );
+    }
+    // Prefer stations within usable range, sorted by distance from origin
+    const reachable = candidates
+      .filter(isReachable)
+      .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0));
+
+    let cls = "ok";
+    let html = `<h3>Charge plan</h3>`;
+
+    html += `<div class="plan-line">Trip distance: <strong>${tripKm.toFixed(1)} km</strong></div>`;
+    html += `<div class="plan-line">Your remaining range: <strong>${rem.toFixed(0)} km</strong> (usable ~${usable.toFixed(0)} km with ${Math.round(ARRIVAL_BUFFER_FRAC * 100)}% reserve)</div>`;
+
+    if (tripKm <= usable) {
+      cls = "ok";
+      html += `<div class="plan-line"><strong>Direct drive is feasible</strong> with current charge (arrives with reserve).</div>`;
+      if (reachable.length) {
+        html += `<div class="plan-line">Optional top-up along the way: ${escapeHtml(reachable[0].name)} (${reachable[0].distanceKm.toFixed(1)} km).</div>`;
+      }
+    } else if (tripKm <= rem) {
+      cls = "warn";
+      html += `<div class="plan-line"><strong>Tight on charge</strong> — trip is within absolute range but would use the reserve. A stop is recommended.</div>`;
+      if (reachable.length) {
+        const stop = reachable[reachable.length - 1]; // furthest still reachable
+        html += `<div class="plan-line">Suggested stop: <strong>${escapeHtml(stop.name)}</strong> at ${stop.distanceKm.toFixed(1)} km (still within usable range).</div>`;
+      } else {
+        html += `<div class="plan-line">No in-range stations found along this corridor for the selected charge type. Widen the filter or raise SoC.</div>`;
+      }
+    } else {
+      cls = "err";
+      html += `<div class="plan-line"><strong>Cannot complete trip on current charge</strong> — shortfall of ~${(tripKm - rem).toFixed(0)} km.</div>`;
+      if (reachable.length) {
+        const stop = reachable[reachable.length - 1];
+        html += `<div class="plan-line">Charge first at: <strong>${escapeHtml(stop.name)}</strong> (${stop.distanceKm.toFixed(1)} km away), then continue.</div>`;
+        const remainingAfterStop = tripKm - stop.distanceKm;
+        html += `<div class="plan-line">After that stop, ~${remainingAfterStop.toFixed(0)} km remain to destination (plan further stops if needed).</div>`;
+      } else {
+        html += `<div class="plan-line">No reachable stations along the route for the selected charge type. Increase SoC or change connector filter.</div>`;
+      }
+    }
+
+    if (activeFilter) {
+      html += `<div class="plan-line">Filter active: <strong>${escapeHtml(activeFilter)}</strong></div>`;
+    }
+
+    html += `<div class="plan-line" style="margin-top:0.4rem;color:var(--text-muted);font-size:0.72rem">Plan uses your entered SoC/range + real OSRM distance + live OCM stations. Occupancy is not predicted.</div>`;
+
+    box.className = "charge-plan " + cls;
+    box.innerHTML = html;
+    box.classList.remove("hidden");
   }
 
   async function onDestinationSelected(item) {
@@ -546,26 +794,23 @@
     el.routeDuration.textContent = "…";
     el.routeDistance.setAttribute("data-label", "Distance");
     el.routeDuration.setAttribute("data-label", "Duration");
+    el.chargePlan.classList.add("hidden");
 
     try {
       const route = await fetchRoute(userPos, dest);
+      lastRoute = route;
       drawRoute(route.polyline);
       el.routeDistance.textContent = `${route.distanceKm.toFixed(1)} km`;
       el.routeDuration.textContent = `${Math.round(route.durationMin)} min`;
 
-      // Fit bounds
       const bounds = new maplibregl.LngLatBounds();
       bounds.extend([userPos.lng, userPos.lat]);
       bounds.extend([dest.lng, dest.lat]);
       route.polyline.forEach((p) => bounds.extend([p.lng, p.lat]));
       map.fitBounds(bounds, { padding: 60, duration: 1000 });
 
-      // Re-query stations near destination (simple radius, not "optimal" algorithm)
-      await loadStationsAround(dest, {
-        distanceKm: 12,
-        title: "Stations near destination",
-        setAsCurrent: false,
-      });
+      const along = await loadStationsAlongRoute(route.polyline, 8);
+      updateChargePlan(route, along);
     } catch (err) {
       console.error(err);
       showMapMessage(`Routing failed: ${err.message}`, true);
@@ -582,7 +827,6 @@
         el.suggestions.classList.add("hidden");
         return;
       }
-      // debounce ~400ms to respect Nominatim 1 req/s
       searchTimeout = setTimeout(async () => {
         try {
           const results = await geocode(q);
@@ -615,7 +859,10 @@
     });
 
     document.addEventListener("click", (e) => {
-      if (!el.destInput.contains(e.target) && !el.suggestions.contains(e.target)) {
+      if (
+        !el.destInput.contains(e.target) &&
+        !el.suggestions.contains(e.target)
+      ) {
         el.suggestions.classList.add("hidden");
       }
     });
@@ -623,18 +870,31 @@
     el.clearRoute.addEventListener("click", clearRoute);
   }
 
-  // ---------------------------------------------------------------------------
-  // Filter
-  // ---------------------------------------------------------------------------
-  function setupFilter() {
+  function setupBatteryAndFilters() {
+    el.socInput.addEventListener("input", () => {
+      socPercent = Number(el.socInput.value) || 0;
+      updateRangeUI();
+    });
+    el.fullRangeInput.addEventListener("input", () => {
+      fullRangeKm = Number(el.fullRangeInput.value) || 1;
+      updateRangeUI();
+    });
+
     el.connectorFilter.addEventListener("change", () => {
       activeFilter = el.connectorFilter.value;
-      const list = routeStations.length ? routeStations : currentStations;
-      const title = routeStations.length
-        ? "Stations near destination"
-        : "Nearby stations";
-      renderStationList(list, title);
+      renderStationList(getActiveList(), getActiveTitle());
+      if (lastRoute) updateChargePlan(lastRoute, routeStations);
     });
+
+    el.reachableOnly.addEventListener("change", () => {
+      reachableOnly = el.reachableOnly.checked;
+      renderStationList(getActiveList(), getActiveTitle());
+    });
+
+    // initial
+    socPercent = Number(el.socInput.value) || 70;
+    fullRangeKm = Number(el.fullRangeInput.value) || 350;
+    updateRangeUI();
   }
 
   // ---------------------------------------------------------------------------
@@ -642,6 +902,12 @@
   // ---------------------------------------------------------------------------
   async function start() {
     setLocationStatus("Locating…");
+    setupBatteryAndFilters();
+    setupSearch();
+    el.closeDrawer.addEventListener("click", () => {
+      el.detailDrawer.classList.add("hidden");
+      selectedId = null;
+    });
 
     const { pos, fallback, reason } = await getUserLocation();
     userPos = pos;
@@ -663,15 +929,10 @@
       );
     }
 
-    setupSearch();
-    setupFilter();
-    el.closeDrawer.addEventListener("click", () => {
-      el.detailDrawer.classList.add("hidden");
-      selectedId = null;
+    await loadStationsAround(pos, {
+      title: "Nearby stations",
+      setAsCurrent: true,
     });
-
-    // Load real nearby stations
-    await loadStationsAround(pos, { title: "Nearby stations", setAsCurrent: true });
   }
 
   start().catch((err) => {

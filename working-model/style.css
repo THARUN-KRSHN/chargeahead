@@ -452,3 +452,111 @@ html, body {
     flex-wrap: wrap;
   }
 }
+
+/* Battery panel */
+.battery-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.battery-row label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.battery-row input {
+  width: 88px;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: right;
+}
+
+.range-summary {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  background: var(--bg);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
+}
+
+.range-summary strong {
+  color: var(--accent);
+  font-family: ui-monospace, monospace;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.check-row input {
+  accent-color: var(--accent);
+}
+
+/* Charge plan box */
+.charge-plan {
+  margin: 0.65rem 0;
+  padding: 0.65rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.charge-plan.ok {
+  border-color: var(--accent);
+}
+
+.charge-plan.warn {
+  border-color: var(--warn);
+}
+
+.charge-plan.err {
+  border-color: var(--danger);
+}
+
+.charge-plan h3 {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.charge-plan .plan-line {
+  margin-bottom: 0.25rem;
+}
+
+.charge-plan .plan-line strong {
+  color: var(--text);
+}
+
+.station-card.out-of-range {
+  opacity: 0.45;
+}
+
+.station-card .reach {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.station-card .reach.no {
+  color: var(--danger);
+}

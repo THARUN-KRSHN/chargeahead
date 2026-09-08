@@ -24,6 +24,23 @@
     <div class="main">
       <!-- Sidebar -->
       <aside class="sidebar">
+        <!-- Battery / range (user-provided) -->
+        <section class="panel" id="battery-panel">
+          <h2>Your vehicle charge</h2>
+          <div class="battery-row">
+            <label for="soc-input">Battery SoC %</label>
+            <input id="soc-input" type="number" min="1" max="100" value="70" />
+          </div>
+          <div class="battery-row">
+            <label for="full-range-input">Full range at 100% (km)</label>
+            <input id="full-range-input" type="number" min="50" max="800" value="350" />
+          </div>
+          <div id="range-summary" class="range-summary">
+            Estimated remaining range: <strong id="remaining-range">—</strong>
+          </div>
+          <p class="hint">Enter your real SoC and the vehicle’s rated full range. Remaining range = full range × (SoC / 100). No invented vehicle data.</p>
+        </section>
+
         <!-- Search -->
         <section class="panel">
           <h2>Destination</h2>
@@ -41,17 +58,22 @@
               <span id="route-distance">—</span>
               <span id="route-duration">—</span>
             </div>
+            <div id="charge-plan" class="charge-plan hidden"></div>
             <button id="clear-route" class="btn-secondary">Clear route</button>
           </div>
         </section>
 
-        <!-- Optional filter: connector type (derived from real data) -->
+        <!-- Filter by connector type (from live data) -->
         <section class="panel" id="filter-panel">
-          <h2>Filter by connector</h2>
+          <h2>Filter by charge type</h2>
           <select id="connector-filter">
             <option value="">All connectors (from live results)</option>
           </select>
-          <p class="hint">Options are built only from connectors actually returned by Open Charge Map for the current stations.</p>
+          <label class="check-row">
+            <input type="checkbox" id="reachable-only" />
+            Show only stations within remaining range
+          </label>
+          <p class="hint">Connector list is built only from types Open Charge Map returned for the current stations.</p>
         </section>
 
         <!-- Station list -->

@@ -4,7 +4,8 @@ A small, self-contained **live-data** proof of the core ChargeAhead loop:
 
 1. Real user location on a real map  
 2. Real nearby EV charging stations from Open Charge Map  
-3. Real place search (Nominatim) + real road routing (OSRM) + stations near the destination  
+3. Real place search (Nominatim) + real road routing (OSRM) + stations **along the route**
+4. Battery SoC + full-range inputs → remaining range, reachable stations, and a simple charge-preserving plan
 
 **No mocks. No hardcoded stations. No invented availability, queue, or confidence scores.**
 
@@ -67,7 +68,7 @@ No other keys are required. All services used are free-tier / public:
 - **Distance sorting** — Real Haversine distance from the user’s actual (or labeled-fallback) position.
 - **Destination search** — Nominatim with India bias + 400 ms debounce (respects 1 req/s).
 - **Road route** — OSRM public instance returns real geometry, distance (km) and duration (min). Polyline is drawn on the map.
-- **Stations near destination** — Fresh OCM query around the chosen destination (simple radius). Not claimed as an “optimal stop planner”.
+- **Stations along the route** — After routing, several points are sampled along the OSRM polyline. Open Charge Map is queried near each sample (corridor radius ~8 km). Results are merged, de-duplicated, filtered to stations actually near the path, and shown as “Stations along this route”. This is a simple real-data corridor filter — not claimed as an optimal stop-planning algorithm.
 
 ### Optional feature included
 **Connector-type filter** — Dropdown options are built **only** from the connector types that appear in the current live OCM result set. No hardcoded connector list.
@@ -75,6 +76,16 @@ No other keys are required. All services used are free-tier / public:
 **Data-freshness badge** — If `DateLastVerified` is older than 90 days (or missing), a small “not recently verified” label is shown. This is a plain date-based flag, not a confidence score or percentage.
 
 ---
+
+
+### Battery range & charge plan (user inputs only)
+
+- At start, enter **Battery SoC %** and **Full range at 100% (km)** (from your vehicle’s real rated range).
+- Remaining range = full range × (SoC / 100). A 15% reserve is kept for planning.
+- Stations are tagged **in range** / **beyond range** using that value.
+- Checkbox: “Show only stations within remaining range”.
+- **Filter by charge type**: connector dropdown built only from live OCM results.
+- After routing, a **Charge plan** box compares real OSRM trip distance to your remaining range and suggests the furthest reachable live station along the corridor when a stop is needed.
 
 ## Explicit non-features (intentionally omitted)
 
