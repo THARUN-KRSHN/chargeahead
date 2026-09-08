@@ -31,6 +31,12 @@
             <label for="soc-input">Battery SoC %</label>
             <input id="soc-input" type="number" min="1" max="100" value="70" />
           </div>
+          <div class="soc-quick" id="soc-quick">
+            <button type="button" class="soc-chip" data-soc="25">25%</button>
+            <button type="button" class="soc-chip" data-soc="50">50%</button>
+            <button type="button" class="soc-chip" data-soc="75">75%</button>
+            <button type="button" class="soc-chip" data-soc="100">100%</button>
+          </div>
           <div class="battery-row">
             <label for="full-range-input">Full range at 100% (km)</label>
             <input id="full-range-input" type="number" min="50" max="800" value="350" />
@@ -62,6 +68,7 @@
             <div class="route-stats">
               <span id="route-distance">—</span>
               <span id="route-duration">—</span>
+              <span id="route-eta">—</span>
             </div>
             <div id="charge-plan" class="charge-plan hidden"></div>
             <div id="ai-plan" class="charge-plan ai-plan hidden"></div>

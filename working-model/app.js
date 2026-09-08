@@ -44,10 +44,13 @@
   // Corridor search radius around each sample point (also used for spacing)
   const CORRIDOR_KM = 8;
 
-  // Traffic-light tiers (reuse real detour / range numbers only)
-  const ON_ROUTE_DETOUR_GOOD_KM = ON_ROUTE_DETOUR_MAX_KM; // ≤5 km detour = green
-  const ON_ROUTE_DETOUR_FAR_KM = CORRIDOR_KM; // beyond corridor edge = red
-  const NEARBY_COMFORTABLE_FRACTION = 0.5; // nearby mode: green if well within usable range
+  // Traffic-light tiers = distance from the *route path* (detourKm)
+  const ON_ROUTE_DETOUR_GOOD_KM = 2.5; // ≤2.5 km off the road path = green (truly on-route)
+  const ON_ROUTE_DETOUR_MAX_KM_REC = 2.5; // only recommend stations within this detour when greens exist
+  const ON_ROUTE_DETOUR_FAR_KM = CORRIDOR_KM; // >8 km = red
+  // Keep a slightly wider band still "acceptable" for planning if no tight match
+  const ON_ROUTE_DETOUR_OK_KM = ON_ROUTE_DETOUR_MAX_KM; // 5 km
+  const NEARBY_COMFORTABLE_FRACTION = 0.5;
 
   // Soft page size for long lists — all stations kept; "Show more" reveals the rest
   const LIST_PAGE_SIZE = 40;
@@ -96,6 +99,7 @@
     routeInfo: $("route-info"),
     routeDistance: $("route-distance"),
     routeDuration: $("route-duration"),
+    routeEta: $("route-eta"),
     chargePlan: $("charge-plan"),
     aiPlan: $("ai-plan"),
     clearRoute: $("clear-route"),
@@ -175,6 +179,48 @@
   /** Distance you can drive while still keeping the safety reserve */
   function usableRangeKm() {
     return Math.max(0, remainingRangeKm() - safetyMarginKm());
+  }
+
+  function formatClock(date) {
+    try {
+      return date.toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    } catch {
+      const h = date.getHours();
+      const m = String(date.getMinutes()).padStart(2, "0");
+      const ampm = h >= 12 ? "PM" : "AM";
+      const h12 = h % 12 || 12;
+      return `${h12}:${m} ${ampm}`;
+    }
+  }
+
+  const VEHICLE_STORAGE_KEY = "chargeahead_vehicle_profile";
+
+  function saveVehicleProfile() {
+    try {
+      localStorage.setItem(
+        VEHICLE_STORAGE_KEY,
+        JSON.stringify({
+          socPercent,
+          fullRangeKm,
+          safetyPercent,
+        })
+      );
+    } catch (_) {}
+  }
+
+  function loadVehicleProfile() {
+    try {
+      const raw = localStorage.getItem(VEHICLE_STORAGE_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data || typeof data !== "object") return null;
+      return data;
+    } catch {
+      return null;
+    }
   }
 
   function updateRangeUI() {
@@ -377,16 +423,25 @@
     red: "#ef4444",
   };
 
+  /**
+   * Traffic light = how close the station is to the *route path*, not distance from start.
+   * Green: on / near the route (small detour)
+   * Yellow: slightly off-route
+   * Red: far off-route (or unknown detour while routing)
+   * Nearby mode (no route): still use distance from you as a soft hint only.
+   */
   function classifyStationTier(station) {
-    const usable = usableRangeKm();
-    if (station.routeProgressKm != null) {
-      if (station.routeProgressKm > usable) return "red";
-      if (station.detourKm != null && station.detourKm <= ON_ROUTE_DETOUR_GOOD_KM)
-        return "green";
-      if (station.detourKm != null && station.detourKm <= ON_ROUTE_DETOUR_FAR_KM)
-        return "yellow";
-      return "red";
+    // Along a route: ONLY detour from the road path matters
+    if (station.detourKm != null) {
+      if (station.detourKm <= ON_ROUTE_DETOUR_GOOD_KM) return "green"; // truly near the road
+      if (station.detourKm <= ON_ROUTE_DETOUR_OK_KM) return "yellow"; // slightly off
+      return "red"; // far off-route
     }
+    // Routing active but detour not computed yet
+    if (station.routeProgressKm != null) return "yellow";
+
+    // Nearby mode (no destination route): soft distance-from-you tiers
+    const usable = usableRangeKm();
     if (station.distanceKm == null) return "yellow";
     if (station.distanceKm <= usable * NEARBY_COMFORTABLE_FRACTION) return "green";
     if (station.distanceKm <= usable) return "yellow";
@@ -450,50 +505,152 @@
     const color = TIER_COLORS[tier] || TIER_COLORS.yellow;
     const offline = station.statusIsOperational === false;
     const isRec = recommendedStationIds.has(station.id);
-    const size = isRec ? 34 : 28;
-    const border = isRec ? "3px solid #fff" : "2px solid #fff";
-    const ring = isRec
-      ? `0 0 0 3px ${color}, 0 0 12px ${color}aa`
-      : `0 0 8px ${color}80`;
+    // Recommended gets a larger hit area so the yellow halo fits
+    const size = isRec ? 44 : 28;
 
-    const node = document.createElement("div");
-    node.style.cssText = `
-      width: ${size}px; height: ${size}px; border-radius: 50%;
-      background: ${color};
-      border: ${border};
-      box-shadow: ${ring};
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      opacity: ${offline ? 0.55 : 1};
-      position: relative;
-    `;
-    const warn = offline
-      ? `<span style="position:absolute;top:-6px;right:-6px;font-size:11px;line-height:1">⚠</span>`
-      : "";
-    node.innerHTML = `${warn}<svg width="14" height="14" viewBox="0 0 24 24" fill="#0f1419"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`;
+    // Root element: MapLibre owns position/transform — do NOT set position/transform here
+    const root = document.createElement("div");
+    root.className = "station-marker-root" + (isRec ? " is-recommended" : "");
+    root.style.width = size + "px";
+    root.style.height = size + "px";
+    root.style.cursor = "pointer";
+
+    // Outer yellow ring for suggested/AI-recommended stops (very visible on the map)
+    if (isRec) {
+      const halo = document.createElement("div");
+      halo.className = "station-rec-halo";
+      root.appendChild(halo);
+    }
+
+    const inner = document.createElement("div");
+    inner.className = "station-marker-inner";
+    inner.style.cssText = [
+      "width:" + (isRec ? "30px" : "100%"),
+      "height:" + (isRec ? "30px" : "100%"),
+      "margin:" + (isRec ? "7px auto 0" : "0"),
+      "border-radius:50%",
+      "background:" + color,
+      "border:" + (isRec ? "3px solid #fde047" : "2px solid #fff"),
+      "box-shadow:" + (isRec ? "0 0 12px #eab308cc" : "0 0 6px " + color + "80"),
+      "display:flex",
+      "align-items:center",
+      "justify-content:center",
+      "opacity:" + (offline ? "0.55" : "1"),
+      "position:relative",
+      "z-index:2",
+      "pointer-events:auto",
+    ].join(";");
+
+    if (isRec) {
+      const badge = document.createElement("span");
+      badge.className = "station-rec-label";
+      badge.textContent = "★";
+      badge.title = "Suggested stop";
+      inner.appendChild(badge);
+    }
+
+    if (offline) {
+      const warn = document.createElement("span");
+      warn.textContent = "⚠";
+      warn.style.cssText =
+        "position:absolute;top:-7px;right:-7px;font-size:11px;line-height:1;pointer-events:none";
+      inner.appendChild(warn);
+    }
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "14");
+    svg.setAttribute("height", "14");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M13 2L3 14h9l-1 8 10-12h-9l1-8z");
+    path.setAttribute("fill", "#0f1419");
+    svg.appendChild(path);
+    inner.appendChild(svg);
+    root.appendChild(inner);
 
     const tierLabel =
       tier === "green"
-        ? "Optimal — on route, short detour, in range"
+        ? "On route — within ~2.5 km of the road path"
         : tier === "yellow"
-          ? "Slightly far — longer detour or near range edge"
-          : "Too far — beyond usable range or large detour";
-    node.title =
+          ? "Slightly off route — up to ~5 km detour"
+          : "Far off route — more than ~5 km off the path";
+    root.title =
       station.name +
       " — " +
       tierLabel +
       (offline ? " — reported non-operational" : "") +
-      (isRec ? " — Recommended stop" : "");
+      (isRec ? " — ★ Suggested charge stop" : "");
 
-    const marker = new maplibregl.Marker({ element: node })
+    const marker = new maplibregl.Marker({
+      element: root,
+      anchor: "center",
+    })
       .setLngLat([station.coords.lng, station.coords.lat])
       .addTo(map);
 
-    node.addEventListener("click", (e) => {
+    root.addEventListener("click", (e) => {
       e.stopPropagation();
       selectStation(station);
     });
     stationMarkers.push(marker);
+  }
+
+  /** Sort: green (lowest detour) first, then yellow, then red */
+  function preferOnRouteStations(stations) {
+    if (!stations || !stations.length) return [];
+    return stations.slice().sort((a, b) => {
+      const ta = classifyStationTier(a);
+      const tb = classifyStationTier(b);
+      const rank = { green: 0, yellow: 1, red: 2 };
+      const ra = rank[ta] ?? 3;
+      const rb = rank[tb] ?? 3;
+      if (ra !== rb) return ra - rb;
+      const da = a.detourKm != null ? a.detourKm : 99;
+      const db = b.detourKm != null ? b.detourKm : 99;
+      if (da !== db) return da - db;
+      // further along the trip is better among equal detour
+      return (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0);
+    });
+  }
+
+  /**
+   * Never highlight an off-route station when a true on-route (green) option exists.
+   * `picks` = stations the planner/AI suggested; `pool` = full corridor list.
+   */
+  function resolveRecommendedStations(picks, pool) {
+    const list = (picks || []).filter(Boolean);
+    const all = pool && pool.length ? pool : list;
+
+    const isTight = (s) =>
+      s.detourKm != null && s.detourKm <= ON_ROUTE_DETOUR_GOOD_KM;
+
+    const greenPicks = list.filter(isTight);
+    if (greenPicks.length) return preferOnRouteStations(greenPicks);
+
+    // Planner picked only off-route — but green stations exist in the corridor?
+    const greenPool = all.filter(isTight);
+    if (greenPool.length) {
+      // Use the best green option(s) instead of the off-route pick
+      return preferOnRouteStations(greenPool).slice(0, Math.max(1, list.length || 1));
+    }
+
+    // No green anywhere — keep honest off-route picks (sorted)
+    return preferOnRouteStations(list.length ? list : all).slice(0, 1);
+  }
+
+  function applyRecommendedHighlights(ids) {
+    recommendedStationIds = new Set(
+      (ids || []).filter((id) => id != null)
+    );
+    if (routeStations.length) {
+      clearStationMarkers();
+      routeStations.forEach(addStationMarker);
+      renderStationList(routeStations, "Stations along this route");
+    } else if (currentStations.length) {
+      clearStationMarkers();
+      currentStations.forEach(addStationMarker);
+      renderStationList(currentStations, "Nearby stations");
+    }
   }
 
   function ensureMapLegend() {
@@ -502,9 +659,9 @@
     box.id = "map-tier-legend";
     box.className = "map-tier-legend";
     box.innerHTML = `
-      <div><span class="leg-dot" style="background:#22c55e"></span> Optimal — on route, short detour, in range</div>
-      <div><span class="leg-dot" style="background:#f59e0b"></span> Slightly far — longer detour or near range edge</div>
-      <div><span class="leg-dot" style="background:#ef4444"></span> Too far — beyond usable range or large detour</div>
+      <div><span class="leg-dot" style="background:#22c55e"></span> On route — within ~2.5 km of the road path</div>
+      <div><span class="leg-dot" style="background:#f59e0b"></span> Slightly off route — up to ~5 km detour</div>
+      <div><span class="leg-dot" style="background:#ef4444"></span> Far off route — more than ~5 km off the path</div>
       <div><span class="leg-warn">⚠</span> Reported non-operational</div>
     `;
     const wrap = document.querySelector(".map-wrap");
@@ -594,7 +751,7 @@
         const tier = classifyStationTier(s);
         const tierColor = TIER_COLORS[tier] || TIER_COLORS.yellow;
         const recBadge = recommendedStationIds.has(s.id)
-          ? `<span class="rec-badge">Recommended</span>`
+          ? `<span class="rec-badge">★ Suggested</span>`
           : "";
         return `
           <div class="station-card ${selectedId === s.id ? "active" : ""} ${reach ? "" : "out-of-range"}" data-id="${s.id}">
@@ -1008,25 +1165,48 @@
    * Falls back to wider corridor with an honest "off-route" label if none qualify.
    */
   function pickBestStop(candidates, usable, preferOnRoute = true) {
-    const onRoute = candidates.filter(
+    // 1) True on-route (tight detour) within usable range
+    const tight = candidates.filter(
       (s) =>
         s.detourKm != null &&
-        s.detourKm <= ON_ROUTE_DETOUR_MAX_KM &&
+        s.detourKm <= ON_ROUTE_DETOUR_GOOD_KM &&
         s.routeProgressKm != null &&
         s.routeProgressKm <= usable
     );
-    onRoute.sort((a, b) => (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0));
+    // Prefer furthest along the trip among tight matches (still low detour)
+    tight.sort((a, b) => {
+      const dp = (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0);
+      if (Math.abs(dp) > 1) return dp;
+      return (a.detourKm ?? 99) - (b.detourKm ?? 99);
+    });
+    if (tight.length) {
+      return { station: tight[0], offRoute: false };
+    }
+
+    // 2) Acceptable on-route band (≤ 5 km) if nothing tighter
+    const onRoute = candidates.filter(
+      (s) =>
+        s.detourKm != null &&
+        s.detourKm <= ON_ROUTE_DETOUR_OK_KM &&
+        s.routeProgressKm != null &&
+        s.routeProgressKm <= usable
+    );
+    onRoute.sort((a, b) => {
+      const dd = (a.detourKm ?? 99) - (b.detourKm ?? 99);
+      if (Math.abs(dd) > 0.3) return dd; // lower detour wins
+      return (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0);
+    });
     if (onRoute.length) {
       return { station: onRoute[0], offRoute: false };
     }
     if (!preferOnRoute) return { station: null, offRoute: false };
 
-    // Fallback: any reachable station in the wider corridor (honest label)
+    // 3) Fallback: any reachable in corridor (honest off-route label)
     const any = candidates
       .filter(
         (s) => s.routeProgressKm != null && s.routeProgressKm <= usable
       )
-      .sort((a, b) => (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0));
+      .sort((a, b) => (a.detourKm ?? 99) - (b.detourKm ?? 99));
     if (any.length) {
       return { station: any[0], offRoute: true };
     }
@@ -1057,16 +1237,31 @@
       // pickBestStop filters by routeProgressKm <= usable from origin; re-filter for chain
       let station = null;
       let offRoute = false;
-      const onRouteAhead = ahead
+      const tightAhead = ahead
         .filter(
-          (s) => s.detourKm != null && s.detourKm <= ON_ROUTE_DETOUR_MAX_KM
+          (s) => s.detourKm != null && s.detourKm <= ON_ROUTE_DETOUR_GOOD_KM
         )
-        .sort((a, b) => (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0));
-      if (onRouteAhead.length) {
-        station = onRouteAhead[0];
+        .sort((a, b) => {
+          const dp = (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0);
+          if (Math.abs(dp) > 1) return dp;
+          return (a.detourKm ?? 99) - (b.detourKm ?? 99);
+        });
+      const okAhead = ahead
+        .filter(
+          (s) =>
+            s.detourKm != null &&
+            s.detourKm <= ON_ROUTE_DETOUR_OK_KM &&
+            s.detourKm > ON_ROUTE_DETOUR_GOOD_KM
+        )
+        .sort((a, b) => (a.detourKm ?? 99) - (b.detourKm ?? 99));
+      if (tightAhead.length) {
+        station = tightAhead[0];
+        offRoute = false;
+      } else if (okAhead.length) {
+        station = okAhead[0];
         offRoute = false;
       } else if (ahead.length) {
-        ahead.sort((a, b) => (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0));
+        ahead.sort((a, b) => (a.detourKm ?? 99) - (b.detourKm ?? 99));
         station = ahead[0];
         offRoute = true;
       }
@@ -1141,7 +1336,10 @@
       if (!stops.length) {
         cls = "err";
         verdict = "impossible";
-        html += `<div class="plan-line"><strong>Cannot complete trip within your safety reserve</strong> — shortfall of ~${(tripKm + margin - rem).toFixed(0)} km vs remaining charge.</div>`;
+        const shortfall = (tripKm + margin - rem).toFixed(0);
+        html += `<div class="plan-line plan-alert"><strong>⚠️ Way too little charge for this trip</strong></div>`;
+        html += `<div class="plan-line">You need about <strong>${(tripKm + margin).toFixed(0)} km</strong> of usable range (trip + ${safetyPercent}% reserve), but only have <strong>${rem.toFixed(0)} km</strong> left — short by ~${shortfall} km.</div>`;
+        html += `<div class="plan-line">Raise your SoC, lower the safety reserve, or pick a closer destination. No safe charge plan is possible with the current numbers.</div>`;
         const anyInAbsRange = candidates
           .filter((s) => s.routeProgressKm != null && s.routeProgressKm <= rem)
           .sort((a, b) => (b.routeProgressKm ?? 0) - (a.routeProgressKm ?? 0));
@@ -1220,15 +1418,17 @@
       comfort,
     };
 
-    // Highlight recommended stops on map + list
-    recommendedStationIds = new Set(
-      plannedStops.map((p) => p.station && p.station.id).filter((id) => id != null)
-    );
-    // Re-render markers/list to apply highlight
-    if (routeStations.length) {
-      clearStationMarkers();
-      routeStations.forEach(addStationMarker);
-      renderStationList(routeStations, "Stations along this route");
+    // Highlight recommended stops on map + list (prefer on-route / green)
+    if (verdict === "impossible") {
+      applyRecommendedHighlights([]);
+      showMapMessage(
+        "Way too little charge for this trip — raise SoC or pick a closer destination.",
+        true
+      );
+    } else {
+      const picks = plannedStops.map((p) => p.station).filter(Boolean);
+      const resolved = resolveRecommendedStations(picks, candidates);
+      applyRecommendedHighlights(resolved.map((st) => st.id));
     }
 
     // Kick off optional Groq narration (non-blocking)
@@ -1247,23 +1447,34 @@
     const play = container.querySelector(".play-briefing");
     const stop = container.querySelector(".stop-briefing");
     if (play) {
-      play.addEventListener("click", async () => {
+      play.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         const text = buildSpokenText(lastDeterministicPlan, lastGroqResult);
         if (!text) {
           showMapMessage("No plan to read yet — set a destination first.", true);
           return;
         }
         play.disabled = true;
-        play.textContent = "Generating…";
+        const prev = play.textContent;
+        play.textContent = "Speaking…";
         try {
           await speakPlan(text);
+        } catch (err) {
+          console.error(err);
+          showMapMessage("Voice briefing failed: " + (err.message || err), true);
         } finally {
           play.disabled = false;
-          play.textContent = "🔊 Play voice briefing";
+          play.textContent = prev || "🔊 Play voice briefing";
         }
-      });
+      };
     }
-    if (stop) stop.addEventListener("click", () => stopSpeaking());
+    if (stop) {
+      stop.onclick = (e) => {
+        e.preventDefault();
+        stopSpeaking();
+      };
+    }
   }
 
   function buildSpokenText(detPlan, groqResult) {
@@ -1316,41 +1527,119 @@
 
   async function speakPlan(text) {
     stopSpeaking();
+    const clean = (text || "").replace(/\s+/g, " ").trim();
+    if (!clean) {
+      showMapMessage("Nothing to read — generate a route plan first.", true);
+      return null;
+    }
+
+    // Prefer browser speech FIRST — must stay inside the user-gesture call stack
+    // (awaiting Groq first often breaks speechSynthesis in Chrome).
+    if ("speechSynthesis" in window) {
+      try {
+        await speakWithBrowser(clean);
+        return null;
+      } catch (err) {
+        console.warn("Browser speech failed:", err);
+      }
+    }
+
+    // Optional Groq TTS if browser speech unavailable/failed
     if (GROQ_API_KEY && GROQ_API_KEY.trim()) {
       try {
         const res = await fetch("https://api.groq.com/openai/v1/audio/speech", {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${GROQ_API_KEY.trim()}`,
+            Authorization: "Bearer " + GROQ_API_KEY.trim(),
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
             model: "playai-tts",
             voice: "Aaliyah-PlayAI",
-            input: text.slice(0, 4000),
-            response_format: "mp3",
+            input: clean.slice(0, 2000),
+            response_format: "wav",
           }),
         });
-        if (!res.ok) throw new Error(`Groq TTS ${res.status}`);
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => "");
+          throw new Error("Groq TTS " + res.status + " " + errBody.slice(0, 120));
+        }
         const blob = await res.blob();
-        const audio = new Audio(URL.createObjectURL(blob));
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
         currentBriefingAudio = audio;
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          if (currentBriefingAudio === audio) currentBriefingAudio = null;
+        };
         await audio.play();
         return audio;
       } catch (err) {
-        console.warn("Groq TTS failed, falling back to browser speech:", err);
+        console.warn("Groq TTS failed:", err);
+        showMapMessage("Voice failed — check volume or try Chrome/Edge.", true);
       }
+    } else {
+      showMapMessage("Voice briefing isn't supported in this browser.", true);
     }
-    if ("speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.rate = 1;
-      window.speechSynthesis.speak(u);
-      return null;
-    }
-    showMapMessage("Voice briefing isn't supported in this browser.", true);
     return null;
   }
+
+  function speakWithBrowser(clean) {
+    return new Promise((resolve, reject) => {
+      const run = () => {
+        try {
+          window.speechSynthesis.cancel();
+          // Chrome quirk: pause/resume helps kick the engine after cancel
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+
+          const u = new SpeechSynthesisUtterance(clean);
+          u.rate = 1.05;
+          u.pitch = 1;
+          u.volume = 1;
+          u.lang = "en-IN";
+          const voices = window.speechSynthesis.getVoices() || [];
+          const en =
+            voices.find((v) => /en-IN/i.test(v.lang)) ||
+            voices.find((v) => /en-GB/i.test(v.lang)) ||
+            voices.find((v) => /^en/i.test(v.lang));
+          if (en) u.voice = en;
+
+          let settled = false;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            resolve();
+          };
+          u.onend = done;
+          u.onerror = (e) => {
+            if (settled) return;
+            settled = true;
+            reject(e.error || new Error("speech error"));
+          };
+          window.speechSynthesis.speak(u);
+          // Safety: some browsers never fire onend
+          setTimeout(done, Math.min(120000, 3000 + clean.length * 60));
+        } catch (err) {
+          reject(err);
+        }
+      };
+
+      const voices = window.speechSynthesis.getVoices();
+      if (voices && voices.length) {
+        run();
+      } else {
+        const onV = () => {
+          window.speechSynthesis.removeEventListener("voiceschanged", onV);
+          run();
+        };
+        window.speechSynthesis.addEventListener("voiceschanged", onV);
+        // Also try immediately — some browsers already work
+        setTimeout(run, 250);
+      }
+    });
+  }
+
 
   // ---------------------------------------------------------------------------
   // Optional Groq AI plan narration (never invents stations)
@@ -1409,7 +1698,7 @@
 
 Rules:
 - If remainingRangeKm >= tripKm + safetyMarginKm, recommendedStopIds must be [].
-- Otherwise pick stops only from stations[].id, preferring low detourKm and high routeProgressKm still reachable within usableRangeKm from the start (or from previous stop assuming a full recharge).
+- Otherwise pick stops only from stations[].id, strongly preferring low detourKm (on-route / green: detour ≤ 5 km) and reachable within usableRangeKm. Avoid red (large detour) stations when a greener option exists.
 - Do not invent IDs.
 
 Data:
@@ -1514,13 +1803,19 @@ Return JSON shape:
         spokenText: spokenParts.join(" "),
       };
 
-      // Prefer AI-validated stops for map highlight when present
+      // Map highlight: never prefer off-route AI picks when green on-route exists
       if (validStops.length) {
-        recommendedStationIds = new Set(validStops.map((st) => st.id));
-        if (routeStations.length) {
-          clearStationMarkers();
-          routeStations.forEach(addStationMarker);
-          renderStationList(routeStations, "Stations along this route");
+        const ordered = resolveRecommendedStations(validStops, candidates);
+        applyRecommendedHighlights(ordered.map((st) => st.id));
+        const first = ordered[0];
+        if (first && first.coords && map) {
+          try {
+            map.flyTo({
+              center: [first.coords.lng, first.coords.lat],
+              zoom: Math.max(map.getZoom(), 12),
+              duration: 900,
+            });
+          } catch (_) {}
         }
       }
 
@@ -1552,6 +1847,7 @@ Return JSON shape:
     el.routeInfo.classList.remove("hidden");
     el.routeDistance.textContent = "…";
     el.routeDuration.textContent = "…";
+    if (el.routeEta) el.routeEta.textContent = "…";
     el.routeDistance.setAttribute("data-label", "Distance");
     el.routeDuration.setAttribute("data-label", "Duration");
     el.chargePlan.classList.add("hidden");
@@ -1562,6 +1858,11 @@ Return JSON shape:
       drawRoute(route.polyline);
       el.routeDistance.textContent = `${route.distanceKm.toFixed(1)} km`;
       el.routeDuration.textContent = `${Math.round(route.durationMin)} min`;
+      if (el.routeEta) {
+        const eta = new Date(Date.now() + route.durationMin * 60 * 1000);
+        el.routeEta.textContent = `Arrive around ${formatClock(eta)}`;
+        el.routeEta.setAttribute("data-label", "ETA");
+      }
 
       const bounds = new maplibregl.LngLatBounds();
       bounds.extend([userPos.lng, userPos.lat]);
@@ -1576,6 +1877,7 @@ Return JSON shape:
       showMapMessage(`Routing failed: ${err.message}`, true);
       el.routeDistance.textContent = "—";
       el.routeDuration.textContent = "—";
+      if (el.routeEta) el.routeEta.textContent = "—";
     }
   }
 
@@ -1631,9 +1933,27 @@ Return JSON shape:
   }
 
   function setupBatteryAndFilters() {
+    // Restore saved vehicle profile (demo friction fix)
+    const saved = loadVehicleProfile();
+    if (saved) {
+      if (saved.socPercent != null) {
+        socPercent = Number(saved.socPercent) || 70;
+        el.socInput.value = String(socPercent);
+      }
+      if (saved.fullRangeKm != null) {
+        fullRangeKm = Number(saved.fullRangeKm) || 350;
+        el.fullRangeInput.value = String(fullRangeKm);
+      }
+      if (saved.safetyPercent != null && el.safetyInput) {
+        safetyPercent = Number(saved.safetyPercent) || 20;
+        el.safetyInput.value = String(safetyPercent);
+      }
+    }
+
     el.socInput.addEventListener("input", () => {
       socPercent = Number(el.socInput.value) || 0;
       updateRangeUI();
+      syncSocChips();
     });
     el.fullRangeInput.addEventListener("input", () => {
       fullRangeKm = Number(el.fullRangeInput.value) || 1;
@@ -1646,6 +1966,25 @@ Return JSON shape:
       });
     }
 
+    // Quick SoC chips
+    document.querySelectorAll(".soc-chip").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const v = Number(btn.getAttribute("data-soc"));
+        if (!v) return;
+        socPercent = v;
+        el.socInput.value = String(v);
+        updateRangeUI();
+        syncSocChips();
+      });
+    });
+    function syncSocChips() {
+      document.querySelectorAll(".soc-chip").forEach((btn) => {
+        const v = Number(btn.getAttribute("data-soc"));
+        btn.classList.toggle("active", v === Number(socPercent));
+      });
+    }
+    syncSocChips();
+
     el.connectorFilter.addEventListener("change", () => {
       activeFilter = el.connectorFilter.value;
       renderStationList(getActiveList(), getActiveTitle());
@@ -1657,10 +1996,12 @@ Return JSON shape:
       renderStationList(getActiveList(), getActiveTitle());
     });
 
-    // initial
-    socPercent = Number(el.socInput.value) || 70;
-    fullRangeKm = Number(el.fullRangeInput.value) || 350;
-    safetyPercent = el.safetyInput ? Number(el.safetyInput.value) || 20 : 20;
+    // initial (HTML defaults if nothing saved)
+    if (!saved) {
+      socPercent = Number(el.socInput.value) || 70;
+      fullRangeKm = Number(el.fullRangeInput.value) || 350;
+      safetyPercent = el.safetyInput ? Number(el.safetyInput.value) || 20 : 20;
+    }
     updateRangeUI();
   }
 

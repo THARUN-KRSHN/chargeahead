@@ -712,3 +712,93 @@ html, body {
   color: var(--text-muted);
   font-size: 0.78rem;
 }
+
+/* MapLibre owns transform on .maplibregl-marker — keep our root clean */
+.station-marker-root {
+  display: block;
+  line-height: 0;
+}
+
+.station-marker-inner {
+  box-sizing: border-box;
+}
+
+
+.soc-quick {
+  display: flex;
+  gap: 0.35rem;
+  margin: -0.15rem 0 0.55rem;
+  flex-wrap: wrap;
+}
+
+.soc-chip {
+  flex: 1;
+  min-width: 3.2rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.soc-chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.soc-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #052e16;
+}
+
+#route-eta {
+  display: block;
+  margin-top: 0.25rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+
+/* Suggested / AI-recommended station — yellow ring on the map */
+.station-rec-halo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 50%;
+  border: 3px solid #eab308;
+  box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.35), 0 0 16px rgba(234, 179, 8, 0.55);
+  animation: rec-pulse 1.6s ease-out infinite;
+  pointer-events: none;
+  z-index: 1;
+  box-sizing: border-box;
+}
+
+@keyframes rec-pulse {
+  0% { transform: scale(0.92); opacity: 1; }
+  70% { transform: scale(1.25); opacity: 0.35; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+.station-rec-label {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: #fde047;
+  text-shadow: 0 0 4px #000;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.plan-alert {
+  color: #fca5a5 !important;
+  font-size: 0.95rem;
+}
