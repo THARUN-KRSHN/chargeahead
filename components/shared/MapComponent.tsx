@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
+import * as maplibregl from 'maplibre-gl';
 import { cn } from '@/lib/utils';
 import type { ChargingStation, LatLng } from '@/types';
 import { LocateFixed, Map as MapIcon, Compass } from 'lucide-react';
@@ -28,13 +29,16 @@ const CONFIDENCE_COLORS: Record<string, string> = {
 };
 
 const DEFAULT_CENTER: LatLng = { lat: 12.9716, lng: 77.5946 };
-const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
 let mapsInitialized = false;
-function initGoogleMaps() {
-  if (!mapsInitialized) {
-    setOptions({ key: API_KEY, v: 'weekly', libraries: ['places', 'geometry', 'marker'] });
-    mapsInitialized = true;
+function initGoogleMaps(apiKey: string) {
+  if (!mapsInitialized && apiKey) {
+    try {
+      setOptions({ key: apiKey, v: 'weekly', libraries: ['places', 'geometry', 'marker'] });
+      mapsInitialized = true;
+    } catch (e) {
+      console.warn('[Google Maps] Failed to initialize options:', e);
+    }
   }
 }
 
@@ -53,18 +57,63 @@ export function MapComponent({
 }: MapComponentProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const maplibreInstanceRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
   const polylineRef = useRef<google.maps.Polyline | null>(null);
   const userMarkerRef = useRef<google.maps.Marker | null>(null);
 
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
   const [isReady, setIsReady] = useState(false);
+  const [hasMapError, setHasMapError] = useState(false);
   const [isFollowing, setIsFollowing] = useState(followUser);
   const routeFittedRef = useRef<string>('');
 
-  // Initialize Map
+  // Catch Google Maps Auth Failure (ApiProjectMapError)
   useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
-    initGoogleMaps();
+    const prevFailure = (window as any).gm_authFailure;
+    (window as any).gm_authFailure = () => {
+      console.warn('[Google Maps] ApiProjectMapError detected. Switching to MapLibre GL fallback engine.');
+      setHasMapError(true);
+      if (typeof prevFailure === 'function') prevFailure();
+    };
+    return () => {
+      (window as any).gm_authFailure = prevFailure;
+    };
+  }, []);
+
+  // Initialize Map (Google Maps or MapLibre GL Fallback)
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    if (!apiKey || hasMapError) {
+      if (maplibreInstanceRef.current) return;
+      const initialCenter = userLocation || center || DEFAULT_CENTER;
+
+      try {
+        const mlMap = new maplibregl.Map({
+          container: mapRef.current,
+          style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+          center: [initialCenter.lng, initialCenter.lat],
+          zoom: userLocation ? 15 : zoom ?? 13,
+        });
+
+        maplibreInstanceRef.current = mlMap;
+        setIsReady(true);
+      } catch (err) {
+        console.error('[MapLibre Fallback] Load error:', err);
+        setIsReady(true);
+      }
+
+      return () => {
+        if (maplibreInstanceRef.current) {
+          maplibreInstanceRef.current.remove();
+          maplibreInstanceRef.current = null;
+        }
+      };
+    }
+
+    if (mapInstanceRef.current) return;
+    initGoogleMaps(apiKey);
 
     importLibrary('maps')
       .then((mapsLib) => {
@@ -89,7 +138,10 @@ export function MapComponent({
         mapInstanceRef.current = map;
         setIsReady(true);
       })
-      .catch((err) => console.error('[Google Maps] Loader error:', err));
+      .catch((err) => {
+        console.warn('[Google Maps] Loader failed (ApiProjectMapError). Switching to MapLibre fallback:', err);
+        setHasMapError(true);
+      });
 
     return () => {
       if (polylineRef.current) polylineRef.current.setMap(null);
@@ -98,7 +150,7 @@ export function MapComponent({
       markersRef.current = [];
       mapInstanceRef.current = null;
     };
-  }, []);
+  }, [hasMapError]);
 
   // Update user position marker and smoothly pan map if following vehicle
   useEffect(() => {
