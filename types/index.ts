@@ -20,7 +20,18 @@ export type StationStatus = 'available' | 'busy' | 'offline' | 'unknown';
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
 
-export type ReportType = 'broken' | 'blocked' | 'busy' | 'working' | 'payment_issue' | 'other';
+export type ReportType = 'broken' | 'blocked' | 'busy' | 'working' | 'payment_issue' | 'incorrect_info' | 'safety' | 'offline' | 'other';
+
+export type ReportCategory =
+  | 'broken'
+  | 'blocked'
+  | 'busy'
+  | 'working'
+  | 'payment_issue'
+  | 'incorrect_info'
+  | 'safety';
+
+export type ReportStatus = 'new' | 'acknowledged' | 'in_progress' | 'resolved' | 'expired';
 
 export type BookingStatus = 'upcoming' | 'active' | 'completed' | 'cancelled' | 'missed';
 
@@ -107,6 +118,8 @@ export interface ChargingStation {
   pricePerKwh: number; // average
   fastChargeAvailable: boolean;
   ultraFastAvailable: boolean;
+  operatorId?: string;
+  activeReports?: StationReport[];
 }
 
 // ---- EV Vehicle ----
@@ -267,6 +280,29 @@ export interface Transaction {
 
 // ---- Community Reports ----
 
+export interface StationReport {
+  id: string;
+  stationId: string;
+  reporterId: string;
+  reporterName: string;
+  reporterAvatarUrl?: string;
+  category: ReportCategory;
+  comment?: string;
+  photoUrl?: string;
+  createdAt: string;
+  status: ReportStatus;
+  corroborationCount: number;
+  operatorNote?: string;
+  portId?: string;
+  verified?: boolean;
+}
+
+export interface Operator {
+  id: string;
+  name: string;
+  stationIds: string[];
+}
+
 export interface CommunityReport {
   id: string;
   stationId: string;
@@ -279,6 +315,8 @@ export interface CommunityReport {
   verified: boolean;
   upvotes: number;
   createdAt: string;
+  status?: ReportStatus;
+  corroborationCount?: number;
 }
 
 // ---- Notifications ----
@@ -395,3 +433,42 @@ export interface PaymentMethodFormData {
   cvv?: string;
   upiId?: string;
 }
+
+// ---- Route Planning ----
+
+export interface Place {
+  id: string;
+  label: string;      // e.g. "Mysuru Palace, Mysuru"
+  address: string;
+  coords: LatLng;
+  type: 'city' | 'landmark' | 'station' | 'area';
+}
+
+export interface RouteStop {
+  station: ChargingStation;
+  arrivalChargePercent: number;
+  targetChargePercent: number;
+  chargeTimeMin: number;
+  legDistanceKm: number;   // distance from previous point to this stop
+  legTimeMin: number;      // drive time for that leg
+  estimatedCostInr: number;
+  detourKm: number;        // how much extra vs straight line
+}
+
+export interface RoutePlan {
+  origin: Place;
+  destination: Place;
+  vehicle: UserVehicle;
+  startChargePercent: number;
+  stops: RouteStop[];
+  finalLegDistanceKm: number;   // last stop (or origin) → destination
+  finalLegTimeMin: number;
+  totalDistanceKm: number;
+  totalDrivingMin: number;
+  totalChargingMin: number;
+  totalTimeMin: number;
+  totalCostInr: number;
+  needsCharging: boolean;
+  longTripWarning?: string;     // set if >3 stops would have been needed
+}
+

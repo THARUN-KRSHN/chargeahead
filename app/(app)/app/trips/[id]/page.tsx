@@ -51,7 +51,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
         <div className="h-56 rounded-2xl overflow-hidden border border-gray-200 relative">
           <MapComponent
             stations={trip.stops.map((s) => s.station).filter(Boolean) as any}
-            center={[12.7, 77.2]}
+            center={{ lat: 12.7, lng: 77.2 }}
             zoom={8}
           />
         </div>

@@ -90,15 +90,30 @@ export async function mockResetPassword(token: string, newPassword: string): Pro
   if (!token || newPassword.length < 8) throw new Error('Invalid reset token or weak password');
 }
 
+import { fetchOCMStations, fetchOCMStationById } from '@/lib/api/openChargeMap';
+
 // ---- Stations ----
 
-export async function fetchNearbyStations(limit = 12): Promise<ChargingStation[]> {
-  await mockDelay(400, 800);
+export async function fetchNearbyStations(limit = 12, lat = 12.9716, lng = 77.5946): Promise<ChargingStation[]> {
+  await mockDelay(300, 600);
+  try {
+    const ocmStations = await fetchOCMStations({ latitude: lat, longitude: lng, maxResults: limit });
+    if (ocmStations && ocmStations.length > 0) {
+      const mockFallback = getNearbyStations(limit - ocmStations.length);
+      return [...ocmStations, ...mockFallback].slice(0, limit);
+    }
+  } catch (err) {
+    console.warn('OCM API fetch error, falling back to mock data:', err);
+  }
   return getNearbyStations(limit);
 }
 
 export async function fetchStationById(id: string): Promise<ChargingStation> {
-  await mockDelay(300, 600);
+  await mockDelay(200, 500);
+  if (id.startsWith('ocm-')) {
+    const ocmStation = await fetchOCMStationById(id);
+    if (ocmStation) return ocmStation;
+  }
   const station = getStationById(id);
   if (!station) throw new Error(`Station ${id} not found`);
   return station;
@@ -107,13 +122,27 @@ export async function fetchStationById(id: string): Promise<ChargingStation> {
 export async function searchStations(query: string): Promise<ChargingStation[]> {
   await mockDelay(200, 500);
   const q = query.toLowerCase();
-  return MOCK_STATIONS.filter(
+  const mockResults = MOCK_STATIONS.filter(
     (s) =>
       s.name.toLowerCase().includes(q) ||
       s.city.toLowerCase().includes(q) ||
       s.operator.toLowerCase().includes(q) ||
       s.address.toLowerCase().includes(q),
   );
+
+  try {
+    const ocmResults = await fetchOCMStations({ maxResults: 15 });
+    const matchingOcm = ocmResults.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.city.toLowerCase().includes(q) ||
+        s.operator.toLowerCase().includes(q) ||
+        s.address.toLowerCase().includes(q),
+    );
+    return [...matchingOcm, ...mockResults];
+  } catch {
+    return mockResults;
+  }
 }
 
 // ---- Search / Places ----

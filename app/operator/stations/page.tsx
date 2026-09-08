@@ -20,7 +20,7 @@ export default function OperatorStationsPage() {
     setStationsList((prev) =>
       prev.map((s) => {
         if (s.id === id) {
-          const newStatus = s.status === 'operational' ? 'maintenance' : 'operational';
+          const newStatus = s.status === 'available' ? 'offline' : 'available';
           toast.info(`${s.name} status toggled to ${newStatus}`);
           return { ...s, status: newStatus as any };
         }
@@ -68,7 +68,7 @@ export default function OperatorStationsPage() {
             </thead>
             <tbody className="divide-y divide-gray-200 text-black">
               {filtered.map((stn: any) => {
-                const isOp = stn.status === 'operational' || stn.status === 'available';
+                const isOp = stn.status === 'available' || stn.status === 'busy';
                 return (
                   <tr key={stn.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
@@ -87,7 +87,7 @@ export default function OperatorStationsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 font-mono font-extrabold text-black">
-                      ₹{stn.pricePerKwhInr ?? stn.pricePerKwh} / kWh
+                      ₹{stn.pricePerKwh} / kWh
                     </td>
                     <td className="px-6 py-4 font-mono font-extrabold text-emerald-700">
                       {stn.confidenceScore}% Usable

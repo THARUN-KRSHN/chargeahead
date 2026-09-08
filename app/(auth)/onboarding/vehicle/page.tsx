@@ -8,6 +8,8 @@ import { MOCK_VEHICLES } from '@/lib/mock/users';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
 import { toast } from 'sonner';
 
+import type { UserVehicle } from '@/types';
+
 const POPULAR_MODELS = [
   { make: 'Tata', model: 'Nexon EV Max', batteryCapacityKwh: 40.5, maxChargingPowerKw: 50, connectorTypes: ['CCS2'], rangeKm: 453 },
   { make: 'Tata', model: 'Punch EV', batteryCapacityKwh: 35, maxChargingPowerKw: 50, connectorTypes: ['CCS2'], rangeKm: 421 },
@@ -31,18 +33,24 @@ export default function OnboardingVehiclePage() {
     setLoading(true);
     await new Promise((r) => setTimeout(r, 600));
 
-    const newVehicle = {
+    const modelId = `ev-${selected.make}-${selected.model}`.toLowerCase().replace(/\s+/g, '-');
+    const newVehicle: UserVehicle = {
       id: `v-${Date.now()}`,
       userId: 'user-001',
-      make: selected.make,
-      model: selected.model,
-      year: 2024,
-      batteryCapacityKwh: selected.batteryCapacityKwh,
-      maxChargingPowerKw: selected.maxChargingPowerKw,
-      connectorTypes: selected.connectorTypes as any,
+      evModelId: modelId,
+      evModel: {
+        id: modelId,
+        make: selected.make,
+        model: selected.model,
+        year: 2024,
+        batteryCapacityKwh: selected.batteryCapacityKwh,
+        rangKm: selected.rangeKm,
+        connectorTypes: selected.connectorTypes as any,
+      },
       licensePlate,
       isDefault: true,
-      currentBatteryPercent,
+      currentChargePercent: currentBatteryPercent,
+      addedAt: new Date().toISOString(),
     };
 
     setVehicles([newVehicle, ...MOCK_VEHICLES]);

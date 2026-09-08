@@ -17,7 +17,7 @@ export default function EditStationPage({ params }: { params: Promise<{ id: stri
     notFound();
   }
 
-  const [price, setPrice] = useState((station.pricePerKwhInr ?? station.pricePerKwh ?? 18).toString());
+  const [price, setPrice] = useState((station.pricePerKwh ?? 18).toString());
   const [status, setStatus] = useState(station.status);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
@@ -65,9 +65,9 @@ export default function EditStationPage({ params }: { params: Promise<{ id: stri
             onChange={(e) => setStatus(e.target.value as any)}
             className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3 text-sm text-black font-bold focus:border-black outline-none"
           >
-            <option value="operational">Operational (Online & Available)</option>
+            <option value="available">Operational (Online & Available)</option>
             <option value="busy">Busy / High Queue</option>
-            <option value="maintenance">Maintenance Mode (Offline)</option>
+            <option value="offline">Maintenance Mode (Offline)</option>
           </select>
         </div>
 

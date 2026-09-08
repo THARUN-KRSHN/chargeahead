@@ -10,7 +10,8 @@ import {
 } from 'lucide-react';
 import { fetchStationById, fetchStationReports, submitReport } from '@/lib/mock/api';
 import { ConfidenceScore, ConfidenceBreakdown } from '@/components/shared/ConfidenceScore';
-import { BottomSheet } from '@/components/shared/BottomSheet';
+import { ReportIssueSheet } from '@/components/shared/ReportIssueSheet';
+import { useReportStore } from '@/lib/services/reportStore';
 import type { ChargingStation, CommunityReport, ReportType } from '@/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -302,75 +303,83 @@ export default function StationDetailPage() {
           )}
 
           {activeTab === 'community' && (
-            <motion.div key="community" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-extrabold text-black text-base">Community Reports</h2>
-                <button
-                  onClick={() => setReportSheetOpen(true)}
-                  className="flex items-center gap-1.5 text-xs font-extrabold text-black hover:underline"
-                >
-                  <Flag className="w-3.5 h-3.5 text-black" /> Report issue
-                </button>
-              </div>
-              <div className="space-y-3">
-                {reports.length === 0 ? (
-                  <div className="text-center py-8 text-gray-400 text-sm font-medium">No reports yet. Be the first!</div>
-                ) : reports.map((r) => (
-                  <div key={r.id} className="glass-card rounded-xl p-4 border-gray-200">
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center text-xs font-bold shrink-0">
-                        {r.userName.charAt(0)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-extrabold text-black">{r.userName}</span>
-                          <span className={cn('connector-badge text-[10px] font-bold', r.type === 'working' ? 'status-available' : r.type === 'busy' || r.type === 'payment_issue' ? 'status-busy' : 'status-offline')}>
-                            {REPORT_TYPES.find(t => t.type === r.type)?.label ?? r.type}
-                          </span>
-                          {r.verified && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
-                        </div>
-                        {r.description && <p className="text-xs text-gray-600 font-medium mt-1">{r.description}</p>}
-                        <p className="text-[10px] text-gray-400 font-medium mt-1">{formatDistanceToNow(new Date(r.createdAt), { addSuffix: true })}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
+            <CommunityTabSection station={station} onOpenReportSheet={() => setReportSheetOpen(true)} />
           )}
         </AnimatePresence>
       </div>
 
       {/* Report sheet */}
-      <BottomSheet isOpen={reportSheetOpen} onClose={() => setReportSheetOpen(false)} title="Report an Issue" showHandle showCloseButton>
-        <div className="space-y-4 pb-6 text-black">
-          <div className="grid grid-cols-2 gap-2">
-            {REPORT_TYPES.map(({ type, label }) => (
-              <button
-                key={type}
-                onClick={() => setSelectedReportType(type)}
-                className={cn('py-2.5 px-3 rounded-xl text-xs font-bold border transition-all', selectedReportType === type ? 'border-black bg-black text-white' : 'border-gray-200 text-gray-700 hover:border-black')}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <textarea
-            value={reportDescription}
-            onChange={(e) => setReportDescription(e.target.value)}
-            placeholder="Optional: add more details..."
-            rows={3}
-            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-black placeholder:text-gray-400 focus:outline-none focus:border-black resize-none font-medium"
-          />
-          <button
-            onClick={handleSubmitReport}
-            disabled={!selectedReportType || submittingReport}
-            className="w-full py-3.5 rounded-xl bg-black text-white font-extrabold text-sm disabled:opacity-60 flex items-center justify-center gap-2 shadow-md hover:bg-gray-900"
-          >
-            {submittingReport ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Submit Report'}
-          </button>
-        </div>
-      </BottomSheet>
+      <ReportIssueSheet
+        isOpen={reportSheetOpen}
+        onClose={() => setReportSheetOpen(false)}
+        station={station}
+      />
     </div>
+  );
+}
+
+function CommunityTabSection({ station, onOpenReportSheet }: { station: ChargingStation; onOpenReportSheet: () => void }) {
+  const reports = useReportStore((state) => state.getReportsForStation(station.id));
+  const corroborateReport = useReportStore((state) => state.corroborateReport);
+
+  return (
+    <motion.div key="community" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-extrabold text-black text-base">Community Reports</h2>
+        <button
+          onClick={onOpenReportSheet}
+          className="flex items-center gap-1.5 text-xs font-extrabold text-black hover:underline bg-gray-100 px-3 py-1.5 rounded-xl border border-gray-200"
+        >
+          <Flag className="w-3.5 h-3.5 text-black" /> Report issue
+        </button>
+      </div>
+      <div className="space-y-3">
+        {reports.length === 0 ? (
+          <div className="text-center py-8 text-gray-400 text-sm font-medium">No reports yet. Be the first!</div>
+        ) : (
+          reports.map((r) => (
+            <div key={r.id} className="glass-card rounded-xl p-4 border-gray-200 space-y-2">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center text-xs font-bold shrink-0">
+                  {r.reporterName.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-extrabold text-black">{r.reporterName}</span>
+                      <span
+                        className={cn(
+                          'connector-badge text-[10px] font-bold uppercase px-2 py-0.5 rounded-md border',
+                          r.category === 'working' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'
+                        )}
+                      >
+                        {r.category}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-gray-400 font-medium">
+                      {formatDistanceToNow(new Date(r.createdAt), { addSuffix: true })}
+                    </span>
+                  </div>
+                  {r.comment && <p className="text-xs text-gray-600 font-medium mt-1">{r.comment}</p>}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100 text-xs">
+                <span className="text-[11px] text-gray-500 font-semibold">
+                  Status: <span className="font-extrabold text-black uppercase">{r.status}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => corroborateReport(r.id, 'user-001')}
+                  className="text-xs font-extrabold text-black hover:underline bg-gray-100 px-2.5 py-1 rounded-lg border border-gray-200 flex items-center gap-1"
+                >
+                  👍 Me too ({r.corroborationCount})
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </motion.div>
   );
 }

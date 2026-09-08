@@ -37,7 +37,7 @@ export default function SignupPage() {
   const onSubmit = async (data: FormData) => {
     setLoading(true);
     try {
-      const user = await mockSignup(data);
+      const user = await mockSignup({ ...data, confirmPassword: data.password });
       login(user);
       toast.success('Account created! Please verify your phone number ⚡');
       router.replace('/verify');

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { ChevronLeft, Clock, Zap, CreditCard, Check, Calendar } from 'lucide-react';
 import { fetchStationById, fetchPaymentMethods, createBooking, processPayment } from '@/lib/mock/api';
