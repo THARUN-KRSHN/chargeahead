@@ -71,7 +71,13 @@
   let selectedId = null;
   let destCoords = null;
   let searchTimeout = null;
-  let lastRoute = null; // { polyline, distanceKm, durationMin }
+  let lastRoute = null; // { polyline, distanceKm, durationMin, steps }
+  let navigationWatchId = null;
+  let liveStepIndex = 0;
+  let journeyActive = false;
+  let selectedVehicleLabel = "";
+  let evDataset = []; // rows from India_EV_Dataset.csv
+  const NAVIGATION_ZOOM = 16;
 
   // User-provided battery (no invented vehicle model)
   let socPercent = 70;
@@ -103,6 +109,17 @@
     aiPlan: $("ai-plan"),
     clearRoute: $("clear-route"),
     applyReplan: $("apply-replan"),
+    startJourney: $("start-journey"),
+    routeInstructions: $("route-instructions"),
+    instructionList: $("instruction-list"),
+    liveNavigation: $("live-navigation"),
+    liveInstruction: $("live-instruction"),
+    liveDistance: $("live-distance"),
+    recenterButton: $("recenter-btn"),
+    vehicleModel: $("vehicle-model"),
+    vehicleInfo: $("vehicle-info"),
+    vehicleRange: $("vehicle-range"),
+    vehicleCafv: $("vehicle-cafv"),
     listTitle: $("list-title"),
     stationCount: $("station-count"),
     stationList: $("station-list"),
@@ -283,8 +300,12 @@
   }
 
   function placeUserMarker(pos, isFallback) {
-    if (userMarker) userMarker.remove();
+    if (userMarker) {
+      userMarker.setLngLat([pos.lng, pos.lat]);
+      return;
+    }
     const node = document.createElement("div");
+    node.className = "user-location-marker";
     node.style.cssText = `
       width: 18px; height: 18px; border-radius: 50%;
       background: ${isFallback ? "#f59e0b" : "#3b82f6"};
@@ -294,11 +315,26 @@
     node.title = isFallback
       ? "Default location (Bengaluru) — geolocation denied or unavailable"
       : "Your location";
-    userMarker = new maplibregl.Marker({ element: node })
+    userMarker = new maplibregl.Marker({ element: node, anchor: "center" })
       .setLngLat([pos.lng, pos.lat])
       .addTo(map);
-    map.flyTo({ center: [pos.lng, pos.lat], zoom: 12, duration: 1000 });
   }
+
+  function recenterMap() {
+    if (!map || !userPos) return;
+    map.flyTo({
+      center: [userPos.lng, userPos.lat],
+      zoom: journeyActive ? NAVIGATION_ZOOM : Math.max(map.getZoom(), 13),
+      duration: 800,
+    });
+  }
+
+  function setupRecenterButton() {
+    if (!el.recenterButton) return;
+    el.recenterButton.disabled = !userPos;
+    el.recenterButton.addEventListener("click", recenterMap);
+  }
+
 
   function getUserLocation() {
     return new Promise((resolve) => {
@@ -978,17 +1014,160 @@
 
   async function fetchRoute(origin, dest) {
     const coords = `${origin.lng},${origin.lat};${dest.lng},${dest.lat}`;
-    const url = `${OSRM}/${coords}?geometries=geojson&overview=full`;
+    const url = `${OSRM}/${coords}?geometries=geojson&overview=full&steps=true`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`OSRM ${res.status}`);
     const data = await res.json();
     const route = data.routes && data.routes[0];
     if (!route) throw new Error("No route found");
+    const steps = (route.legs || [])
+      .flatMap((leg) => leg.steps || [])
+      .filter((step) => step.maneuver && step.maneuver.type !== "notification");
     return {
       polyline: route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })),
       distanceKm: route.distance / 1000,
       durationMin: route.duration / 60,
+      steps,
     };
+  }
+
+  function formatStepDistance(meters) {
+    if (meters == null) return "";
+    if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
+    return `${Math.round(meters)} m`;
+  }
+
+  function formatStepInstruction(step) {
+    const maneuver = step.maneuver || {};
+    const name = (step.name || "").trim();
+    const modifier = maneuver.modifier ? ` ${maneuver.modifier}` : "";
+    const type = maneuver.type || "";
+    if (type === "depart") return name ? `Depart onto ${name}` : "Depart";
+    if (type === "arrive") return name ? `Arrive at ${name}` : "Arrive at destination";
+    if (type === "roundabout" || type === "rotary") {
+      const exit = maneuver.exit ? `, take exit ${maneuver.exit}` : "";
+      return `Enter roundabout${exit}` + (name ? ` onto ${name}` : "");
+    }
+    if (type === "turn" || type === "end of road" || type === "continue" || type === "new name" || type === "fork" || type === "ramp" || type === "merge") {
+      const verb = type === "turn" ? `Turn${modifier}` : type === "continue" ? "Continue" : type.charAt(0).toUpperCase() + type.slice(1) + modifier;
+      return name ? `${verb} onto ${name}` : verb;
+    }
+    return name || type || "Continue";
+  }
+
+  function renderRouteInstructions(steps) {
+    if (!el.instructionList || !el.routeInstructions) return;
+    const list = steps || [];
+    if (!list.length) {
+      el.routeInstructions.classList.add("hidden");
+      el.instructionList.innerHTML = "";
+      return;
+    }
+    el.instructionList.innerHTML = list
+      .map(
+        (step, i) => `
+        <li class="instruction-item">
+          <span class="instruction-number">${i + 1}</span>
+          <span class="instruction-copy">${escapeHtml(formatStepInstruction(step))}</span>
+          <span class="instruction-distance">${formatStepDistance(step.distance)}</span>
+        </li>`
+      )
+      .join("");
+    el.routeInstructions.classList.remove("hidden");
+  }
+
+  function updateLiveBanner(step) {
+    if (!el.liveInstruction) return;
+    if (!step) {
+      el.liveInstruction.textContent = "Journey complete";
+      if (el.liveDistance) el.liveDistance.textContent = "";
+      return;
+    }
+    el.liveInstruction.textContent = formatStepInstruction(step);
+    if (el.liveDistance) el.liveDistance.textContent = formatStepDistance(step.distance);
+  }
+
+  function stopJourneyTracking() {
+    if (navigationWatchId != null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(navigationWatchId);
+      navigationWatchId = null;
+    }
+    journeyActive = false;
+    liveStepIndex = 0;
+    if (el.liveNavigation) el.liveNavigation.classList.add("hidden");
+    if (el.startJourney) {
+      el.startJourney.textContent = "Start journey";
+      el.startJourney.disabled = !(lastRoute && lastRoute.steps && lastRoute.steps.length);
+    }
+  }
+
+  function advanceLiveStep(pos) {
+    if (!lastRoute || !pos || !lastRoute.steps || !lastRoute.steps.length) return;
+    // Advance while close to end of current step's last coordinate
+    while (liveStepIndex < lastRoute.steps.length - 1) {
+      const step = lastRoute.steps[liveStepIndex];
+      const geom = step.geometry && step.geometry.coordinates;
+      if (!geom || !geom.length) {
+        liveStepIndex++;
+        continue;
+      }
+      const [lng, lat] = geom[geom.length - 1];
+      const d = haversineKm(pos, { lat, lng });
+      // Within ~45 m of step end → advance
+      if (d < 0.045) {
+        liveStepIndex++;
+        continue;
+      }
+      break;
+    }
+    updateLiveBanner(lastRoute.steps[liveStepIndex]);
+  }
+
+  function startJourney() {
+    if (!lastRoute || !lastRoute.steps || !lastRoute.steps.length) {
+      showMapMessage("No turn-by-turn steps for this route.", true);
+      return;
+    }
+    journeyActive = true;
+    liveStepIndex = Math.max(
+      0,
+      lastRoute.steps.findIndex((step) => !["depart"].includes((step.maneuver || {}).type))
+    );
+    if (liveStepIndex < 0) liveStepIndex = 0;
+
+    renderRouteInstructions(lastRoute.steps);
+    if (el.liveNavigation) el.liveNavigation.classList.remove("hidden");
+    updateLiveBanner(lastRoute.steps[liveStepIndex]);
+
+    if (el.startJourney) {
+      el.startJourney.textContent = "Journey active";
+      el.startJourney.disabled = true;
+    }
+
+    if (userPos) {
+      placeUserMarker(userPos, isFallbackLocation);
+      recenterMap();
+    }
+
+    if (navigator.geolocation && navigationWatchId == null) {
+      navigationWatchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          userPos = p;
+          isFallbackLocation = false;
+          placeUserMarker(p, false);
+          advanceLiveStep(p);
+          if (journeyActive && map) {
+            map.easeTo({
+              center: [p.lng, p.lat],
+              duration: 500,
+            });
+          }
+        },
+        (err) => console.warn("Live location update failed:", err.message),
+        { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+      );
+    }
   }
 
   function drawRoute(polyline) {
@@ -1057,6 +1236,9 @@
   }
 
   function clearRoute() {
+    stopJourneyTracking();
+    if (el.routeInstructions) el.routeInstructions.classList.add("hidden");
+    if (el.instructionList) el.instructionList.innerHTML = "";
     destCoords = null;
     routeStations = [];
     lastRoute = null;
@@ -1660,6 +1842,14 @@ Return JSON shape:
       drawRoute(route.polyline);
       el.routeDistance.textContent = `${route.distanceKm.toFixed(1)} km`;
       el.routeDuration.textContent = `${Math.round(route.durationMin)} min`;
+      if (el.startJourney) {
+        el.startJourney.disabled = !(route.steps && route.steps.length);
+        el.startJourney.textContent = "Start journey";
+      }
+      stopJourneyTracking();
+      if (route.steps && route.steps.length) {
+        renderRouteInstructions(route.steps);
+      }
       if (el.routeEta) {
         const eta = new Date(Date.now() + route.durationMin * 60 * 1000);
         el.routeEta.textContent = `Arrive around ${formatClock(eta)}`;
@@ -1802,10 +1992,119 @@ Return JSON shape:
   // ---------------------------------------------------------------------------
   // Bootstrap
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // Vehicle model selection (from India_EV_Dataset.csv)
+  // ---------------------------------------------------------------------------
+  function parseCsvLine(line) {
+    const out = [];
+    let cur = "";
+    let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQ) {
+        if (ch === '"' && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else if (ch === '"') {
+          inQ = false;
+        } else {
+          cur += ch;
+        }
+      } else if (ch === '"') {
+        inQ = true;
+      } else if (ch === ",") {
+        out.push(cur);
+        cur = "";
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  async function loadEVDataset() {
+    if (!el.vehicleModel) return;
+    try {
+      const response = await fetch("./India_EV_Dataset.csv");
+      if (!response.ok) throw new Error("CSV " + response.status);
+      const text = await response.text();
+      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      if (lines.length < 2) throw new Error("Empty CSV");
+      const headers = parseCsvLine(lines[0]);
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = parseCsvLine(lines[i]);
+        if (cols.length < headers.length) continue;
+        const row = {};
+        headers.forEach((h, idx) => {
+          row[h.trim()] = (cols[idx] || "").trim();
+        });
+        rows.push(row);
+      }
+      evDataset = rows;
+      const models = Array.from(
+        new Set(rows.map((r) => (r.Model || "").trim()).filter(Boolean))
+      ).sort((a, b) => a.localeCompare(b));
+      el.vehicleModel.innerHTML =
+        '<option value="">Select model</option>' +
+        models
+          .map(
+            (model) =>
+              `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`
+          )
+          .join("");
+      el.vehicleModel.disabled = false;
+    } catch (err) {
+      console.error("Failed to load EV dataset:", err);
+      el.vehicleModel.innerHTML = '<option value="">Could not load models</option>';
+    }
+  }
+
+  function setupVehicleSelection() {
+    if (!el.vehicleModel) return;
+    el.vehicleModel.addEventListener("change", () => {
+      const selectedModel = el.vehicleModel.value;
+      if (!selectedModel) {
+        if (el.vehicleInfo) el.vehicleInfo.classList.add("hidden");
+        selectedVehicleLabel = "";
+        return;
+      }
+      const row = evDataset.find((r) => (r.Model || "").trim() === selectedModel);
+      if (!row) return;
+      const parsedRange = Number.parseFloat(row["Electric Range"]);
+      selectedVehicleLabel = selectedModel;
+      if (el.vehicleRange) {
+        el.vehicleRange.textContent = Number.isFinite(parsedRange)
+          ? `${parsedRange} km`
+          : "Unknown";
+      }
+      let cafv = row["Clean Alternative Fuel Vehicle (CAFV) Eligibility"] || "Unknown";
+      if (cafv.includes("Not eligible") || cafv.includes("Not Eligible")) cafv = "Not eligible";
+      else if (cafv.includes("Eligible")) cafv = "Eligible";
+      if (el.vehicleCafv) el.vehicleCafv.textContent = cafv;
+      if (el.vehicleInfo) el.vehicleInfo.classList.remove("hidden");
+
+      // Apply rated range into full-range input when known
+      if (Number.isFinite(parsedRange) && parsedRange > 0) {
+        fullRangeKm = parsedRange;
+        el.fullRangeInput.value = String(Math.round(parsedRange));
+        updateRangeUI();
+      }
+    });
+  }
+
   async function start() {
     setLocationStatus("Locating…");
     setupBatteryAndFilters();
     setupSearch();
+    setupRecenterButton();
+    setupVehicleSelection();
+    loadEVDataset();
+    if (el.startJourney) {
+      el.startJourney.addEventListener("click", startJourney);
+    }
     el.closeDrawer.addEventListener("click", () => {
       el.detailDrawer.classList.add("hidden");
       selectedId = null;
@@ -1817,6 +2116,7 @@ Return JSON shape:
 
     initMap(pos);
     placeUserMarker(pos, fallback);
+    if (el.recenterButton) el.recenterButton.disabled = false;
 
     if (fallback) {
       setLocationStatus("Default: Bengaluru", "warn");

@@ -839,3 +839,152 @@ html, body {
 .station-card.suggested .name {
   font-weight: 700;
 }
+
+/* Live navigation banner (Google Maps-style next instruction) */
+.live-navigation {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 24;
+  width: min(420px, calc(100% - 24px));
+  padding: 0.75rem 1rem;
+  transform: translateX(-50%);
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  border-radius: var(--radius);
+  background: rgba(15, 20, 25, 0.94);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  text-align: center;
+  pointer-events: none;
+}
+
+.live-navigation-label {
+  color: var(--accent);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.live-instruction {
+  margin-top: 0.2rem;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.live-distance {
+  margin-top: 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.recenter-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  font: 600 0.72rem system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.recenter-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.recenter-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.vehicle-info {
+  margin-top: 0.35rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 0.78rem;
+}
+
+.vehicle-stats-row {
+  margin-bottom: 0.2rem;
+}
+
+#vehicle-model {
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.btn-journey {
+  width: 100%;
+  margin-top: 0.55rem;
+  margin-bottom: 0.35rem;
+}
+
+.route-instructions {
+  margin-top: 0.5rem;
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.45rem 0.55rem;
+  background: var(--surface-2);
+}
+
+.route-instructions-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.instruction-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.instruction-item {
+  display: grid;
+  grid-template-columns: 1.4rem 1fr auto;
+  gap: 0.4rem;
+  align-items: start;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+
+.instruction-item:last-child {
+  border-bottom: none;
+}
+
+.instruction-number {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.instruction-copy {
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.instruction-distance {
+  color: var(--text-muted);
+  white-space: nowrap;
+}

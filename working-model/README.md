@@ -133,3 +133,11 @@ working-model/
 ```
 
 Open `index.html` (or serve the folder) and allow location access to begin.
+
+
+### Navigation features (from John branch)
+
+- **Vehicle model** dropdown loaded from `India_EV_Dataset.csv` — fills rated full range when selected
+- **Start journey** — shows turn-by-turn from OSRM steps + top **Next instruction** banner
+- **Live location** via `watchPosition` while journey is active (blue marker follows you)
+- **Recenter** button on the map

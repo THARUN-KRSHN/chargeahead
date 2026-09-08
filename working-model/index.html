@@ -52,6 +52,21 @@
           <p class="hint">SoC and full range are yours. Safety reserve is the charge you want left at every point (not just arrival). Remaining = full × (SoC/100).</p>
         </section>
 
+        <section class="panel" id="vehicle-panel">
+          <h2>Vehicle model</h2>
+          <div class="battery-row">
+            <label for="vehicle-model">Switch car model</label>
+            <select id="vehicle-model" disabled>
+              <option value="">Loading models…</option>
+            </select>
+          </div>
+          <div id="vehicle-info" class="vehicle-info hidden">
+            <div class="vehicle-stats-row">Rated range: <strong id="vehicle-range">—</strong></div>
+            <div class="vehicle-stats-row">CAFV: <strong id="vehicle-cafv">—</strong></div>
+            <p class="hint">Selecting a model fills Full range from the EV dataset. You can still override SoC / range / reserve manually.</p>
+          </div>
+        </section>
+
         <!-- Search -->
         <section class="panel">
           <h2>Destination</h2>
@@ -72,6 +87,11 @@
             </div>
             <div id="charge-plan" class="charge-plan hidden"></div>
             <div id="ai-plan" class="charge-plan ai-plan hidden"></div>
+            <button id="start-journey" class="btn-primary btn-journey" type="button" disabled>Start journey</button>
+            <div id="route-instructions" class="route-instructions hidden">
+              <div class="route-instructions-title">Driving instructions</div>
+              <ol id="instruction-list" class="instruction-list"></ol>
+            </div>
             <div class="route-actions">
               <button id="apply-replan" class="btn-primary" type="button">Apply &amp; replan</button>
               <button id="clear-route" class="btn-secondary" type="button">Clear route</button>
@@ -95,6 +115,18 @@
       <div class="map-wrap">
         <div id="map"></div>
         <div id="map-message" class="map-message hidden"></div>
+        <div id="live-navigation" class="live-navigation hidden" role="status" aria-live="polite">
+          <div class="live-navigation-label">Next instruction</div>
+          <div id="live-instruction" class="live-instruction">Start driving</div>
+          <div id="live-distance" class="live-distance"></div>
+        </div>
+        <button id="recenter-btn" class="recenter-btn" type="button" aria-label="Recenter map" title="Recenter on my location" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+          </svg>
+          <span>Recenter</span>
+        </button>
       </div>
     </div>
 
